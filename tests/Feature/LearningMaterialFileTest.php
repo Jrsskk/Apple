@@ -1,0 +1,308 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AcademicYear;
+use App\Models\LearningMaterial;
+use App\Models\SchoolClass;
+use App\Models\Subject;
+use App\Models\User;
+use App\Services\GoogleDriveStorage;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+class LearningMaterialFileTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_teacher_uploads_pdf_and_enrolled_student_can_view_and_download_it(): void
+    {
+        Storage::fake('local');
+        $this->configureSupabase();
+        [$teacher, $student, $class, $subject] = $this->createClassWithStudent();
+        Http::fake(function ($request) {
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/storage/v1/bucket')) {
+                return Http::response(['message' => 'Bucket already exists'], 409);
+            }
+            if ($request->method() === 'POST' && str_contains($request->url(), '/storage/v1/object/materials/')) {
+                return Http::response(['Key' => 'materials/file.pdf']);
+            }
+            if ($request->method() === 'GET' && str_contains($request->url(), '/storage/v1/object/materials/')) {
+                return Http::response('pdf-content');
+            }
+
+            return Http::response([], 200);
+        });
+
+        $this->actingAs($teacher)->post(route('teacher.materials.store'), [
+            'title' => 'Algebra Notes',
+            'school_class_id' => $class->id,
+            'subject_id' => $subject->id,
+            'file' => UploadedFile::fake()->create('algebra-notes.pdf', 12, 'application/pdf'),
+        ])->assertRedirect();
+
+        $material = LearningMaterial::firstOrFail();
+        $this->assertNull($material->google_drive_file_id);
+        $this->assertNotNull($material->file_path);
+        $this->assertSame('supabase', $material->storage_disk);
+        $this->assertSame('algebra-notes.pdf', $material->original_file_name);
+        $this->assertSame(12 * 1024, $material->file_size);
+        $this->assertSame('application/pdf', $material->file_type);
+        $this->assertStringContainsString("/api/v1/materials/{$material->id}/file", $material->file_url);
+
+        $view = $this->actingAs($student)->get(route('student.materials.file', $material));
+        $view->assertOk();
+        $view->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringContainsString('inline', strtolower((string) $view->headers->get('Content-Disposition')));
+
+        $download = $this->actingAs($student)->get(route('student.materials.file', [
+            'material' => $material,
+            'download' => 1,
+        ]));
+        $download->assertOk();
+        $this->assertStringContainsString('attachment', strtolower((string) $download->headers->get('Content-Disposition')));
+        $this->assertStringContainsString('algebra-notes.pdf', (string) $download->headers->get('Content-Disposition'));
+    }
+
+    public function test_teacher_can_replace_a_material_file_in_supabase_storage(): void
+    {
+        $this->configureSupabase();
+        [$teacher, , $class, $subject] = $this->createClassWithStudent();
+        $material = LearningMaterial::create([
+            'title' => 'Existing Notes',
+            'file_path' => 'old.pdf',
+            'storage_disk' => 'supabase',
+            'original_file_name' => 'old.pdf',
+            'file_type' => 'application/pdf',
+            'file_size' => 10,
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+        Http::fake(function ($request) {
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/storage/v1/bucket')) {
+                return Http::response(['message' => 'Bucket already exists'], 409);
+            }
+
+            return Http::response([], 200);
+        });
+
+        $this->actingAs($teacher)->post(route('teacher.materials.replace', $material), [
+            'title' => 'Existing Notes',
+            'school_class_id' => $class->id,
+            'subject_id' => $subject->id,
+            'file' => UploadedFile::fake()->create('updated.pdf', 25, 'application/pdf'),
+        ])->assertRedirect();
+
+        $material->refresh();
+        $this->assertNull($material->google_drive_file_id);
+        $this->assertSame('supabase', $material->storage_disk);
+        $this->assertNotSame('old.pdf', $material->file_path);
+        $this->assertSame('updated.pdf', $material->original_file_name);
+        $this->assertSame(25 * 1024, $material->file_size);
+        $this->assertSame('Existing Notes', $material->title);
+        $this->assertSame('supabase', $material->storage_disk);
+
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && json_decode($request->body(), true)['prefixes'][0] === 'old.pdf');
+
+        $this->actingAs($teacher)
+            ->delete(route('teacher.materials.destroy', $material))
+            ->assertRedirect();
+
+        $this->assertSoftDeleted('learning_materials', ['id' => $material->id]);
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && json_decode($request->body(), true)['prefixes'][0] === $material->file_path);
+    }
+
+    public function test_teacher_upload_failure_is_reported_without_creating_database_metadata(): void
+    {
+        [$teacher, , $class, $subject] = $this->createClassWithStudent();
+        config([
+            'services.supabase.url' => 'https://supabase.test',
+            'services.supabase.service_role_key' => null,
+        ]);
+
+        $this->actingAs($teacher)->post(route('teacher.materials.store'), [
+            'title' => 'Algebra Notes',
+            'school_class_id' => $class->id,
+            'subject_id' => $subject->id,
+            'file' => UploadedFile::fake()->create('algebra-notes.pdf', 12, 'application/pdf'),
+        ])->assertRedirect()
+            ->assertSessionHasErrors('file');
+
+        $this->assertDatabaseCount('learning_materials', 0);
+    }
+
+    public function test_teacher_deletes_the_drive_file_and_soft_deletes_its_metadata(): void
+    {
+        [$teacher, , $class, $subject] = $this->createClassWithStudent();
+        $material = LearningMaterial::create([
+            'title' => 'Study Guide',
+            'google_drive_file_id' => 'drive-to-delete',
+            'original_file_name' => 'study-guide.pdf',
+            'file_type' => 'application/pdf',
+            'file_size' => 20,
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+        $drive = \Mockery::mock(GoogleDriveStorage::class);
+        $drive->shouldReceive('delete')->once()->with('drive-to-delete');
+        $this->app->instance(GoogleDriveStorage::class, $drive);
+
+        $this->actingAs($teacher)
+            ->delete(route('teacher.materials.destroy', $material))
+            ->assertRedirect();
+
+        $this->assertSoftDeleted('learning_materials', ['id' => $material->id]);
+    }
+
+    public function test_pdf_image_video_and_presentation_files_are_served_inline_and_as_downloads(): void
+    {
+        Storage::fake('local');
+        [, $student, $class, $subject] = $this->createClassWithStudent();
+
+        $files = [
+            ['notes.pdf', 'application/pdf'],
+            ['diagram.png', 'image/png'],
+            ['lesson.mp4', 'video/mp4'],
+            ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+        ];
+
+        foreach ($files as [$path, $mimeType]) {
+            Storage::disk('local')->put("materials/{$path}", 'material-content');
+            $material = LearningMaterial::create([
+                'title' => pathinfo($path, PATHINFO_FILENAME),
+                'file_path' => "materials/{$path}",
+                'file_type' => $mimeType,
+                'subject_id' => $subject->id,
+                'school_class_id' => $class->id,
+                'uploaded_by' => $class->teacher_id,
+            ]);
+
+            $view = $this->actingAs($student)->get(route('student.materials.file', $material));
+            $view->assertOk();
+            $view->assertHeader('Content-Type', $mimeType);
+            $this->assertStringContainsString('inline', strtolower((string) $view->headers->get('Content-Disposition')));
+
+            $download = $this->actingAs($student)->get(route('student.materials.file', [
+                'material' => $material,
+                'download' => 1,
+            ]));
+            $download->assertOk();
+            $download->assertHeader('Content-Type', $mimeType);
+            $this->assertStringContainsString('attachment', strtolower((string) $download->headers->get('Content-Disposition')));
+        }
+    }
+
+    public function test_students_cannot_access_other_classes_files_and_missing_files_return_404(): void
+    {
+        Storage::fake('local');
+        [$teacher, $student, $class, $subject] = $this->createClassWithStudent();
+        $otherClass = SchoolClass::create([
+            'name' => 'Chemistry 11',
+            'section' => 'B',
+            'grade_level' => '11',
+            'subject_id' => $subject->id,
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $class->academic_year_id,
+        ]);
+        Storage::disk('local')->put('materials/private.pdf', 'private-content');
+
+        $material = LearningMaterial::create([
+            'title' => 'Private Notes',
+            'file_path' => 'materials/private.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $subject->id,
+            'school_class_id' => $otherClass->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+
+        $this->actingAs($student)
+            ->get(route('student.materials.file', $material))
+            ->assertForbidden();
+
+        $student->enrolledClasses()->attach($otherClass->id);
+        Storage::disk('local')->delete($material->file_path);
+
+        $this->get(route('student.materials.file', $material))->assertNotFound();
+    }
+
+    public function test_api_file_endpoint_requires_enrollment_and_serves_the_protected_file(): void
+    {
+        Storage::fake('local');
+        [, $student, $class, $subject] = $this->createClassWithStudent();
+        Storage::disk('local')->put('materials/api.pdf', 'api-pdf-content');
+        $material = LearningMaterial::create([
+            'title' => 'API Notes',
+            'file_path' => 'materials/api.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $class->teacher_id,
+        ]);
+
+        $token = $student->createToken('material-test')->plainTextToken;
+        $this->withToken($token)
+            ->getJson(route('api.v1.materials.file', $material))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+
+        $response = $this->withToken($token)
+            ->getJson(route('api.v1.materials.download', $material))
+            ->assertOk()
+            ->assertJsonPath('data.file_url', route('api.v1.materials.file', $material))
+            ->assertJsonPath('data.material.id', $material->id);
+
+        $viewUrl = $response->json('data.view_url');
+        $downloadUrl = $response->json('data.download_url');
+        $this->assertStringContainsString('/student/materials/'.$material->id.'/secure-file?', $viewUrl);
+        $this->assertStringContainsString('signature=', $viewUrl);
+        $this->assertStringContainsString('signature=', $downloadUrl);
+        $this->get($viewUrl)->assertOk();
+        $signedDownload = $this->get($downloadUrl);
+        $signedDownload->assertOk();
+        $this->assertStringContainsString('attachment', strtolower((string) $signedDownload->headers->get('Content-Disposition')));
+
+        $student->enrolledClasses()->detach($class->id);
+        $this->get($viewUrl)->assertForbidden();
+    }
+
+    /**
+     * @return array{User, User, SchoolClass, Subject}
+     */
+    private function createClassWithStudent(): array
+    {
+        $teacher = User::factory()->teacher()->create();
+        $student = User::factory()->student()->create();
+        $year = AcademicYear::factory()->create();
+        $subject = Subject::factory()->create([
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+        $class = SchoolClass::create([
+            'name' => 'Biology 11',
+            'section' => 'A',
+            'grade_level' => '11',
+            'subject_id' => $subject->id,
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+        $student->enrolledClasses()->attach($class->id);
+
+        return [$teacher, $student, $class, $subject];
+    }
+
+    private function configureSupabase(): void
+    {
+        config([
+            'services.supabase.url' => 'https://supabase.test',
+            'services.supabase.key' => 'test-anon-key',
+            'services.supabase.service_role_key' => 'test-service-role-key',
+        ]);
+    }
+}

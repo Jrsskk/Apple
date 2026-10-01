@@ -1,0 +1,2 @@
+- [Admin announcements class dropdown](admin-announcements-class-dropdown.md) — Added class dropdown to admin announcements form so that teacher-created classes appear in the admin drop list
+- [Admin classes subject dropdown](admin-classes-subject-dropdown.md) — Admin class creation form includes a subject dropdown that shows active subjects, including those created by teachers

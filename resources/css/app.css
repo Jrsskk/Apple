@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { @apply bg-slate-50 text-slate-800 antialiased; }
+  ::selection { @apply bg-blue-200 text-blue-950; }
+}
+@layer components {
+  .portal-shell { background: radial-gradient(circle at 88% 0%, rgba(37,99,235,.12), transparent 28rem), radial-gradient(circle at 12% 100%, rgba(5,150,105,.07), transparent 24rem), #f7f9fc; }
+  .portal-sidebar { background: radial-gradient(circle at 20% 5%, rgba(37,99,235,.3), transparent 18rem), linear-gradient(165deg,#020617 0%,#0f172a 65%,#082f49 140%); }
+  .portal-logo { background: linear-gradient(135deg, #38bdf8, #2563eb); color: white; }
+  .portal-avatar { background: rgba(56,189,248,.2); color: #dbeafe; }
+  .portal-admin .portal-logo { background: linear-gradient(135deg, #fbbf24, #f97316); }
+  .portal-admin .portal-avatar { background: rgba(251,191,36,.2); color: #fef3c7; }
+  .portal-card { @apply rounded-2xl border border-slate-200/80 bg-white/95 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg hover:shadow-slate-200/60; }
+  .portal-btn-primary { @apply inline-flex items-center justify-center rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2; }
+  .portal-btn-secondary { @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50; }
+  .portal-btn-primary, .portal-btn-secondary { @apply gap-2; }
+  .portal-shell main > div > form { @apply border-slate-200/80 shadow-sm; }
+  .portal-shell input:not([type="checkbox"]):not([type="radio"]), .portal-shell select, .portal-shell textarea { @apply border-slate-200 bg-white shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500; }
+  .portal-shell table thead { @apply bg-slate-50/80; }
+  .portal-shell table tbody tr { @apply transition-colors; }
+  .portal-shell button:not([aria-label]), .portal-shell a[class*="bg-indigo-"], .portal-shell a[class*="bg-emerald-"] { @apply transition duration-200; }
+  input, select, textarea { @apply focus:border-blue-500 focus:ring-blue-500; }
+  .portal-teacher .text-emerald-700, .portal-teacher .text-emerald-600 { @apply text-blue-700; }
+  .portal-teacher .bg-emerald-600 { @apply bg-blue-700; }
+  .portal-teacher .bg-emerald-50 { @apply bg-blue-50; }
+  .portal-teacher .border-emerald-200 { @apply border-blue-200; }
+  .portal-teacher .hover\:border-emerald-300:hover { @apply border-blue-300; }
+
+  .student-shell {
+    --edu-primary: #2563eb;
+    --edu-primary-dark: #1d4ed8;
+    --edu-primary-soft: #eff6ff;
+    --edu-surface: #f8fafc;
+    --edu-surface-alt: #eef3fb;
+    --edu-border: #dfe7f3;
+    --edu-text: #0f172a;
+    --edu-muted: #475569;
+    background: linear-gradient(180deg, #edf3fb 0%, #f8fafc 100%);
+  }
+
+  .student-shell .text-indigo-500,
+  .student-shell .text-indigo-600,
+  .student-shell .text-indigo-700,
+  .student-shell .text-blue-600,
+  .student-shell .text-blue-700,
+  .student-shell .text-emerald-600,
+  .student-shell .text-emerald-700 {
+    color: var(--edu-primary) !important;
+  }
+
+  .student-shell .bg-indigo-50,
+  .student-shell .bg-indigo-100,
+  .student-shell .bg-blue-50,
+  .student-shell .bg-blue-100,
+  .student-shell .bg-emerald-50,
+  .student-shell .bg-emerald-100 {
+    background-color: var(--edu-primary-soft) !important;
+  }
+
+  .student-shell .bg-indigo-600,
+  .student-shell .bg-indigo-700,
+  .student-shell .bg-blue-600,
+  .student-shell .bg-blue-700,
+  .student-shell .bg-emerald-600,
+  .student-shell .bg-emerald-700 {
+    background-color: var(--edu-primary) !important;
+  }
+
+  .student-shell .from-indigo-600,
+  .student-shell .from-blue-600 {
+    --tw-gradient-from: var(--edu-primary) !important;
+  }
+
+  .student-shell .to-violet-600,
+  .student-shell .to-blue-700 {
+    --tw-gradient-to: var(--edu-primary-dark) !important;
+  }
+
+  .student-shell .border-indigo-200,
+  .student-shell .border-indigo-300,
+  .student-shell .border-indigo-500,
+  .student-shell .border-blue-200,
+  .student-shell .border-blue-300,
+  .student-shell .border-emerald-200,
+  .student-shell .border-emerald-300 {
+    border-color: var(--edu-border) !important;
+  }
+
+  .student-shell .ring-indigo-500,
+  .student-shell .ring-blue-500,
+  .student-shell .focus\:border-indigo-500:focus,
+  .student-shell .focus\:ring-indigo-500:focus,
+  .student-shell .focus\:border-blue-500:focus,
+  .student-shell .focus\:ring-blue-500:focus {
+    --tw-ring-color: rgba(37, 99, 235, 0.4) !important;
+    border-color: var(--edu-primary) !important;
+  }
+
+  .student-shell input:focus,
+  .student-shell select:focus,
+  .student-shell textarea:focus {
+    border-color: var(--edu-primary) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+  }
+
+  .student-shell .hover\:bg-indigo-50:hover,
+  .student-shell .hover\:bg-blue-50:hover,
+  .student-shell .hover\:bg-emerald-50:hover {
+    background-color: var(--edu-primary-soft) !important;
+  }
+
+  .student-shell .active\:bg-indigo-100:active,
+  .student-shell .active\:bg-blue-100:active,
+  .student-shell .active\:bg-emerald-100:active {
+    background-color: rgba(37, 99, 235, 0.08) !important;
+  }
+}
+@layer utilities {
+  .animate-fade-up { animation: fade-up .45s ease-out both; }
+  .animate-soft-pulse { animation: soft-pulse 2.4s ease-in-out infinite; }
+}
+@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes soft-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (max-width: 640px) {
+  .portal-shell main { padding-top: 1.25rem; }
+  .portal-card { border-radius: 1rem; }
+  .portal-shell table { min-width: 620px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
