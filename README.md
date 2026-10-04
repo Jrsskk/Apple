@@ -155,6 +155,21 @@ longer require Google Drive configuration.
 
 Visit [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
+### Deploying to Vercel
+
+This repository includes a Vercel configuration for the full Laravel app. It
+builds the Vite assets into `public/build`, serves them as static files, and
+sends application requests to Laravel through the community `vercel-php`
+runtime. It does not use Vercel's default Vite `dist` output directory.
+
+In Vercel, set the Framework Preset to **Other** and leave Output Directory
+empty so `vercel.json` controls the build. Add production environment variables
+in Project Settings, including a generated `APP_KEY`, `APP_URL`, and credentials
+for a persistent external database. Do not use the default local SQLite database
+or file-backed sessions, cache, queues, and uploads in production; Vercel
+functions have ephemeral, read-only application filesystems. Configure suitable
+production drivers and persistent storage before serving real users.
+
 ## Development Login Credentials
 
 > **Development only — change in production**
