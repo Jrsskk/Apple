@@ -7,6 +7,7 @@ use App\Models\Quiz;
 use App\Models\User;
 use App\Notifications\AssignmentNotification;
 use App\Notifications\QuizNotification;
+use App\Services\NotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Collection;
@@ -20,27 +21,27 @@ class SendDeadlineReminderJob implements ShouldQueue
         public int $entityId,
     ) {}
 
-    public function handle(): void
+    public function handle(NotificationService $notifications): void
     {
         if ($this->type === 'quiz') {
-            $this->remindQuiz(Quiz::with('schoolClass.students')->find($this->entityId));
+            $this->remindQuiz(Quiz::with('schoolClass')->find($this->entityId), $notifications);
 
             return;
         }
 
         if ($this->type === 'assignment') {
-            $this->remindAssignment(Assignment::with('schoolClass.students')->find($this->entityId));
+            $this->remindAssignment(Assignment::with('schoolClass')->find($this->entityId), $notifications);
         }
     }
 
-    private function remindQuiz(?Quiz $quiz): void
+    private function remindQuiz(?Quiz $quiz, NotificationService $notifications): void
     {
         if (! $quiz || ! $quiz->deadline) {
             return;
         }
 
         $recipients = $this->studentsWithoutSubmission(
-            $quiz->schoolClass?->students ?? collect(),
+            $notifications->studentsForClassSubject((int) $quiz->school_class_id, (int) $quiz->subject_id),
             $quiz->attempts()->pluck('student_id')
         );
 
@@ -53,14 +54,14 @@ class SendDeadlineReminderJob implements ShouldQueue
         }
     }
 
-    private function remindAssignment(?Assignment $assignment): void
+    private function remindAssignment(?Assignment $assignment, NotificationService $notifications): void
     {
         if (! $assignment || ! $assignment->deadline) {
             return;
         }
 
         $recipients = $this->studentsWithoutSubmission(
-            $assignment->schoolClass?->students ?? collect(),
+            $notifications->studentsForClassSubject((int) $assignment->school_class_id, (int) $assignment->subject_id),
             $assignment->submissions()->pluck('student_id')
         );
 

@@ -8,6 +8,7 @@ use App\Models\LearningMaterial;
 use App\Models\SchoolClass;
 use App\Services\GoogleDriveStorage;
 use App\Services\LearningMaterialFileService;
+use App\Services\NotificationService;
 use App\Services\SupabaseStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,7 +37,7 @@ class MaterialController extends Controller
         ]);
     }
 
-    public function store(Request $request, SupabaseStorage $storage): RedirectResponse
+    public function store(Request $request, SupabaseStorage $storage, NotificationService $notifications): RedirectResponse
     {
         $data = $request->validate($this->validationRules());
         $class = $request->user()->taughtClasses()->find($data['school_class_id']);
@@ -58,7 +59,7 @@ class MaterialController extends Controller
         }
 
         try {
-            LearningMaterial::create([
+            $material = LearningMaterial::create([
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
                 'file_path' => $uploaded['path'],
@@ -83,10 +84,21 @@ class MaterialController extends Controller
             throw $exception;
         }
 
+        $recipients = $notifications->studentsForClassSubject(
+            (int) $material->school_class_id,
+            (int) $material->subject_id,
+        );
+        $notifications->notifyMaterial($material, $recipients);
+
         return back()->with('success', 'Material uploaded.');
     }
 
-    public function replace(Request $request, LearningMaterial $material, SupabaseStorage $storage): RedirectResponse
+    public function replace(
+        Request $request,
+        LearningMaterial $material,
+        SupabaseStorage $storage,
+        NotificationService $notifications,
+    ): RedirectResponse
     {
         $this->authorizeMaterial($request, $material);
         $data = $request->validate($this->validationRules());
@@ -158,6 +170,12 @@ class MaterialController extends Controller
 
             return back()->withErrors(['file' => $exception->getMessage()]);
         }
+
+        $recipients = $notifications->studentsForClassSubject(
+            (int) $material->school_class_id,
+            (int) $material->subject_id,
+        );
+        $notifications->notifyMaterial($material, $recipients, updated: true);
 
         return back()->with('success', 'Material replaced.');
     }

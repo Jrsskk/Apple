@@ -30,9 +30,10 @@ class SubmissionController extends ApiController
             'started_at' => ['nullable', 'date'],
             'submitted_at' => ['nullable', 'date'],
             'answers' => ['required', 'array'],
-            'answers.*.question_id' => ['required', 'integer'],
+            'answers.*.question_id' => ['required', 'integer', 'distinct'],
             'answers.*.answer_text' => ['nullable', 'string'],
             'answers.*.selected_options' => ['nullable', 'array'],
+            'answers.*.selected_options.*' => ['nullable'],
         ]);
 
         $quiz = Quiz::findOrFail($data['quiz_id']);
@@ -85,23 +86,29 @@ class SubmissionController extends ApiController
             'checksum' => ['nullable', 'string'],
             'device_id' => ['nullable', 'string'],
             'text_response' => ['nullable', 'string'],
-            'status' => ['nullable', 'string'],
-            'version' => ['nullable', 'integer'],
+            'status' => ['nullable', 'in:submitted,late'],
+            'version' => ['nullable', 'integer', 'min:1'],
             'submitted_at' => ['nullable', 'date'],
-            'file' => ['nullable', 'file', 'max:10240'],
+            'file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,doc,docx,jpg,jpeg,png'],
         ]);
 
         $assignment = Assignment::findOrFail($data['assignment_id']);
         $this->authorize('submit', $assignment);
 
-        if (AssignmentSubmission::where('sync_uuid', $data['sync_uuid'])
+        $existing = AssignmentSubmission::where('sync_uuid', $data['sync_uuid'])
             ->where('student_id', $request->user()->id)
-            ->exists()) {
-            $submission = AssignmentSubmission::where('sync_uuid', $data['sync_uuid'])
-                ->where('student_id', $request->user()->id)
-                ->first();
-
-            return $this->success(['submission' => $submission, 'duplicate' => true], 'Submission already received');
+            ->first();
+        if ($existing) {
+            abort_unless($existing->assignment_id === $assignment->id, 403);
+            $existingStatus = $existing->status instanceof \BackedEnum
+                ? $existing->status->value
+                : (string) $existing->status;
+            if ($existing->submitted_at || in_array($existingStatus, ['submitted', 'late', 'graded', 'returned'], true)) {
+                return $this->success(
+                    ['submission' => $existing, 'duplicate' => true],
+                    'Submission already received',
+                );
+            }
         }
 
         try {

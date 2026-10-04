@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Teacher;
 
 use App\Http\Controllers\Controller;
 use App\Models\Announcement;
+use App\Services\NotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -29,7 +30,7 @@ class AnnouncementController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, NotificationService $notifications): RedirectResponse
     {
         $data = $request->validate([
             'title' => 'required|string|max:255',
@@ -47,16 +48,18 @@ class AnnouncementController extends Controller
             );
         }
 
-        Announcement::create([
+        $announcement = Announcement::create([
             ...$data,
             'published_at' => $data['published_at'] ?? now(),
             'created_by' => $request->user()->id,
         ]);
+        $announcement->load('schoolClass');
+        $notifications->notifyAnnouncementStudents($announcement);
 
         return back()->with('success', 'Announcement posted.');
     }
 
-    public function update(Request $request, Announcement $announcement): RedirectResponse
+    public function update(Request $request, Announcement $announcement, NotificationService $notifications): RedirectResponse
     {
         $this->authorizeAnnouncement($announcement);
 
@@ -69,6 +72,8 @@ class AnnouncementController extends Controller
         ]);
 
         $announcement->update($data);
+        $announcement->load('schoolClass');
+        $notifications->notifyAnnouncementStudents($announcement);
 
         return back()->with('success', 'Announcement updated.');
     }

@@ -12,12 +12,15 @@ use App\Http\Controllers\Admin\SubjectController as AdminSubjectController;
 use App\Http\Controllers\Admin\SyncController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FirebaseMessagingServiceWorkerController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProfilePhotoController;
 use App\Http\Controllers\Student\AnnouncementController as StudentAnnouncementController;
 use App\Http\Controllers\Student\AssignmentSubmitController;
 use App\Http\Controllers\Student\ClassController as StudentClassController;
+use App\Http\Controllers\Student\DeviceTokenController as StudentDeviceTokenController;
 use App\Http\Controllers\Student\MaterialController as StudentMaterialController;
+use App\Http\Controllers\Student\NotificationController as StudentNotificationController;
 use App\Http\Controllers\Student\ProfileController as StudentProfileController;
 use App\Http\Controllers\Student\QuizTakeController;
 use App\Http\Controllers\Student\SyncMonitorController;
@@ -38,6 +41,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => view('welcome'))->name('home');
 Route::get('/offline', fn () => view('offline'))->name('offline');
+Route::get('/firebase-messaging-sw.js', FirebaseMessagingServiceWorkerController::class)
+    ->name('firebase.messaging.service-worker');
 
 Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
@@ -157,6 +162,8 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
         Route::get('announcements', [StudentAnnouncementController::class, 'index'])->name('announcements.index');
         Route::get('materials', [StudentMaterialController::class, 'index'])->name('materials.index');
         Route::get('sync', [SyncMonitorController::class, 'index'])->name('sync.index');
+        Route::post('device-tokens', [StudentDeviceTokenController::class, 'store'])->name('device-tokens.store');
+        Route::delete('device-tokens', [StudentDeviceTokenController::class, 'destroy'])->name('device-tokens.destroy');
         Route::get('grades', function () {
             $student = auth()->user();
 
@@ -181,7 +188,9 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
                     ->get(),
             ]);
         })->name('grades.index');
-        Route::get('notifications', fn () => view('student.notifications', ['notifications' => auth()->user()->notifications()->latest()->paginate(20)]))->name('notifications');
+        Route::get('notifications', [StudentNotificationController::class, 'index'])->name('notifications');
+        Route::post('notifications/{notification}/read', [StudentNotificationController::class, 'markAsRead'])->name('notifications.read');
+        Route::post('notifications/read-all', [StudentNotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
         Route::get('quizzes/{quiz}', [QuizTakeController::class, 'show'])->name('quizzes.show');
         Route::post('quizzes/{quiz}/start', [QuizTakeController::class, 'start'])->name('quizzes.start');
         Route::get('quizzes/{quiz}/offline', [QuizTakeController::class, 'offlineTake'])->name('quizzes.offline');

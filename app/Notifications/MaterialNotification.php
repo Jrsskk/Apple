@@ -6,14 +6,16 @@ use App\Channels\FcmPushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
-class AssignmentNotification extends Notification
+class MaterialNotification extends Notification
 {
     use Queueable;
 
     public function __construct(
         public string $title,
         public string $message,
-        public int $assignmentId,
+        public int $materialId,
+        public int $schoolClassId,
+        public int $subjectId,
     ) {}
 
     public function via(object $notifiable): array
@@ -24,10 +26,12 @@ class AssignmentNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            'type' => 'assignment',
+            'type' => 'material',
             'title' => $this->title,
             'message' => $this->message,
-            'assignment_id' => $this->assignmentId,
+            'material_id' => $this->materialId,
+            'school_class_id' => $this->schoolClassId,
+            'subject_id' => $this->subjectId,
         ];
     }
 }

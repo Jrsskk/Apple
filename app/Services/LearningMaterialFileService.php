@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\Mime\MimeTypes;
 use Throwable;
 
 class LearningMaterialFileService
@@ -38,6 +39,32 @@ class LearningMaterialFileService
         }
 
         $extension = pathinfo($material->original_file_name ?: $material->file_path ?: '', PATHINFO_EXTENSION);
+        $extension = strtolower($extension);
+        if (str_contains(strtolower($contentType), 'pdf')) {
+            $contentType = 'application/pdf';
+            $extension = $extension ?: 'pdf';
+        }
+        $browserMimeTypes = [
+            'pdf' => 'application/pdf',
+            'avif' => 'image/avif',
+            'bmp' => 'image/bmp',
+            'gif' => 'image/gif',
+            'jpeg' => 'image/jpeg',
+            'jpg' => 'image/jpeg',
+            'png' => 'image/png',
+            'svg' => 'image/svg+xml',
+            'webp' => 'image/webp',
+            'm4v' => 'video/x-m4v',
+            'mov' => 'video/quicktime',
+            'mp4' => 'video/mp4',
+            'ogv' => 'video/ogg',
+            'webm' => 'video/webm',
+        ];
+        if (isset($browserMimeTypes[$extension])) {
+            $contentType = $browserMimeTypes[$extension];
+        } elseif ($contentType === 'application/octet-stream' && $extension !== '') {
+            $contentType = MimeTypes::getDefault()->getMimeTypes($extension)[0] ?? $contentType;
+        }
         $filename = $material->original_file_name ?: $material->title;
         if ($extension !== '' && strtolower(pathinfo($filename, PATHINFO_EXTENSION)) !== strtolower($extension)) {
             $filename .= '.'.$extension;

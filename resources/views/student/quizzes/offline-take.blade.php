@@ -20,30 +20,51 @@
     const container = document.getElementById('quiz-content');
     const loading = document.getElementById('quiz-loading');
 
-    if (!window.EduSyncOffline) {
-        loading.textContent = 'Offline module not loaded.';
+    loading.textContent = 'Preparing offline quiz...';
+    const offline = await window.EduSyncOfflineReady;
+    if (!offline) {
+        loading.textContent = 'Offline quiz support could not be loaded. Reconnect and reload this page.';
         return;
     }
 
-    const pack = await window.EduSyncOffline.getQuiz(quizId);
+    let pack;
+    try {
+        pack = await offline.getQuiz(quizId);
+    } catch (error) {
+        loading.textContent = `Could not open the downloaded quiz: ${error.message}`;
+        return;
+    }
     if (!pack) {
         loading.textContent = 'Quiz not downloaded. Connect to internet and download first.';
         return;
     }
 
     const quiz = pack.quiz || pack;
-    const attemptCount = Number(pack.attempt_count || 0);
-    const maxAttempts = Number(pack.max_attempts ?? quiz.max_attempts ?? 0);
-    if (maxAttempts && attemptCount >= maxAttempts) {
-        loading.textContent = 'Maximum attempts reached.';
+    const questions = pack.questions || quiz.questions || [];
+    if (!questions.length) {
+        loading.textContent = 'This downloaded quiz has no questions. Reconnect and download it again.';
         return;
     }
-
-    const attempt = await window.EduSyncOffline.createOfflineQuizAttempt(quizId);
-    const questions = pack.questions || quiz.questions || [];
+    const attempt = await offline.createOfflineQuizAttempt(quizId);
     const answers = {};
     const sequenceOrders = {};
-    let current = 0;
+    if (attempt.status !== 'in_progress') {
+        loading.textContent = attempt.queue_status === 'failed'
+            ? `This quiz was submitted but could not sync: ${attempt.sync_error || 'Retry it from Sync Status.'}`
+            : 'This quiz has already been submitted and is waiting to sync.';
+        return;
+    }
+    for (const saved of await offline.getQuizAnswers(attempt.sync_uuid)) {
+        answers[saved.questionId] = {
+            questionId: saved.questionId,
+            answer_text: saved.answer_text ?? null,
+            selected_options: saved.selected_options ?? null,
+        };
+    }
+    let current = Math.min(
+        Math.max(Number(attempt.current_question || 0), 0),
+        questions.length - 1,
+    );
     let remainingSeconds = Math.max(
         0,
         (Number(pack.duration_minutes ?? quiz.duration_minutes ?? 0) * 60)
@@ -78,6 +99,8 @@
 
         document.getElementById('question-count').textContent = `Question ${current + 1} of ${questions.length}`;
         document.getElementById('question-text').textContent = question.question_text || '';
+        optionsElement.addEventListener('input', saveCurrent);
+        optionsElement.addEventListener('change', saveCurrent);
 
         if (['multiple_choice', 'true_false', 'image_based'].includes(type)) {
             options.forEach((option) => {
@@ -152,14 +175,18 @@
             optionsElement.appendChild(input);
         }
 
-        document.getElementById('prev-btn')?.addEventListener('click', () => {
-            saveCurrent();
+        document.getElementById('prev-btn')?.addEventListener('click', async () => {
+            await saveCurrent();
             current--;
+            attempt.current_question = current;
+            await offline.saveOfflineAttempt(attempt);
             render();
         });
-        document.getElementById('next-btn')?.addEventListener('click', () => {
-            saveCurrent();
+        document.getElementById('next-btn')?.addEventListener('click', async () => {
+            await saveCurrent();
             current++;
+            attempt.current_question = current;
+            await offline.saveOfflineAttempt(attempt);
             render();
         });
         document.getElementById('submit-btn')?.addEventListener('click', submitQuiz);
@@ -197,11 +224,13 @@
         const order = sequenceOrders[question.id];
         if (target < 0 || target >= order.length) return;
         [order[index], order[target]] = [order[target], order[index]];
+        void saveCurrent();
         renderSequence(question, options, list);
     }
 
-    function saveCurrent() {
+    async function saveCurrent() {
         const question = questions[current];
+        if (!question) return;
         const type = question.type?.value ?? question.type;
 
         if (['multiple_choice', 'true_false', 'image_based'].includes(type)) {
@@ -234,16 +263,30 @@
             };
         }
 
-        window.EduSyncOffline.saveQuizAnswer(attempt.sync_uuid, question.id, answers[question.id]);
+        attempt.current_question = current;
+        await Promise.all([
+            offline.saveQuizAnswer(attempt.sync_uuid, question.id, answers[question.id]),
+            offline.saveOfflineAttempt(attempt),
+        ]);
     }
 
     async function submitQuiz() {
         if (isSubmitting) return;
         isSubmitting = true;
-        saveCurrent();
-        await window.EduSyncOffline.submitQuizOffline(attempt.sync_uuid, quizId, Object.values(answers));
-        alert('Quiz submitted offline. It will sync when you reconnect.');
-        window.location.href = '/student/sync';
+        try {
+            await saveCurrent();
+            const submissionAnswers = questions.map((question) => answers[question.id] || {
+                questionId: question.id,
+                answer_text: null,
+                selected_options: null,
+            });
+            await offline.submitQuizOffline(attempt.sync_uuid, quizId, submissionAnswers);
+            alert('Quiz submitted and saved on this device. It will sync when you reconnect.');
+            window.location.href = '/student/sync';
+        } catch (error) {
+            isSubmitting = false;
+            alert(`Your answers are still saved on this device, but submission could not be queued: ${error.message}`);
+        }
     }
 
     function tick() {
@@ -259,6 +302,9 @@
     render();
     tick();
     setInterval(tick, 1000);
-})();
+})().catch((error) => {
+    const loading = document.getElementById('quiz-loading');
+    if (loading) loading.textContent = `Could not start offline quiz: ${error.message}`;
+});
 </script>
 @endpush

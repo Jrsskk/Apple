@@ -15,6 +15,7 @@ use App\Models\SyncLog;
 use App\Models\SyncQueue;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -31,32 +32,67 @@ class SyncService
 
     public function queueItem(User $user, array $data): SyncQueue
     {
+        $expectedEntityId = (int) ($data['entity_id'] ?? match ($data['entity_type']) {
+            'quiz_attempt' => $data['payload']['quiz_id'],
+            'assignment_submission' => $data['payload']['assignment_id'],
+        });
         $item = SyncQueue::firstOrCreate(
             ['sync_uuid' => $data['sync_uuid']],
             [
                 'user_id' => $user->id,
                 'device_id' => $data['device_id'] ?? null,
                 'entity_type' => $data['entity_type'],
-                'entity_id' => $data['entity_id'] ?? null,
+                'entity_id' => $expectedEntityId,
                 'action' => $data['action'],
                 'payload' => $data['payload'],
-                'checksum' => $data['checksum'] ?? hash('sha256', json_encode($data['payload'])),
+                'checksum' => hash('sha256', json_encode($this->canonicalize($data['payload']))),
                 'status' => SyncStatus::Pending,
             ]
         );
 
         abort_unless($item->user_id === $user->id, 403);
+        if (
+            $item->entity_type !== $data['entity_type']
+            || (int) $item->entity_id !== $expectedEntityId
+            || $item->action !== $data['action']
+            || ! hash_equals(
+                hash('sha256', json_encode($this->canonicalize($item->payload ?? []))),
+                hash('sha256', json_encode($this->canonicalize($data['payload']))),
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'sync_uuid' => 'This sync ID was already used for a different submission.',
+            ]);
+        }
 
         return $item;
     }
 
     public function processItem(SyncQueue $item): SyncQueue
     {
-        if ($item->status === SyncStatus::Synced) {
-            return $item;
-        }
+        $claimed = DB::transaction(function () use ($item): ?SyncQueue {
+            $locked = SyncQueue::query()->lockForUpdate()->find($item->id);
+            if (! $locked || $locked->status === SyncStatus::Synced) {
+                return null;
+            }
+            if (
+                $locked->status === SyncStatus::Syncing
+                && $locked->updated_at?->gt(now()->subMinutes(5))
+            ) {
+                return null;
+            }
 
-        $item->update(['status' => SyncStatus::Syncing, 'attempts' => $item->attempts + 1]);
+            $locked->update([
+                'status' => SyncStatus::Syncing,
+                'attempts' => $locked->attempts + 1,
+            ]);
+
+            return $locked->fresh();
+        });
+        if (! $claimed) {
+            return $item->fresh();
+        }
+        $item = $claimed;
 
         try {
             DB::transaction(function () use ($item) {
@@ -72,7 +108,16 @@ class SyncService
             $this->notificationService->notifySyncSuccess($item->user);
         } catch (\Throwable $e) {
             $item->update(['status' => SyncStatus::Failed]);
-            $this->log($item, 'sync', $e->getMessage(), 'failed');
+            $retryable = ! (
+                $e instanceof ValidationException
+                || $e instanceof \Illuminate\Auth\Access\AuthorizationException
+                || $e instanceof ModelNotFoundException
+                || $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface
+            );
+            $this->log($item, 'sync', $e->getMessage(), 'failed', [
+                'exception' => $e::class,
+                'retryable' => $retryable,
+            ]);
             $this->notificationService->notifySyncFailed($item->user, $e->getMessage());
         }
 
@@ -83,7 +128,13 @@ class SyncService
     {
         $processed = [];
         SyncQueue::where('user_id', $user->id)
-            ->whereIn('status', [SyncStatus::Pending, SyncStatus::Failed])
+            ->where(function ($query) {
+                $query->whereIn('status', [SyncStatus::Pending, SyncStatus::Failed])
+                    ->orWhere(function ($stale) {
+                        $stale->where('status', SyncStatus::Syncing)
+                            ->where('updated_at', '<=', now()->subMinutes(5));
+                    });
+            })
             ->orderBy('created_at')
             ->limit($limit)
             ->each(function (SyncQueue $item) use (&$processed) {
@@ -91,6 +142,23 @@ class SyncService
             });
 
         return $processed;
+    }
+
+    private function canonicalize(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        if (! array_is_list($value)) {
+            ksort($value);
+        }
+
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalize($item);
+        }
+
+        return $value;
     }
 
     public function pullForStudent(User $user, ?Carbon $since = null): array
@@ -423,12 +491,6 @@ class SyncService
             ]);
         }
 
-        if ($quiz->starts_at && $startedAt->lt($quiz->starts_at)) {
-            throw ValidationException::withMessages([
-                'started_at' => 'The quiz was started before its availability window.',
-            ]);
-        }
-
         $deadline = $startedAt->copy()->addMinutes($quiz->duration_minutes);
         if ($quiz->deadline && $quiz->deadline->lt($deadline)) {
             $deadline = $quiz->deadline;
@@ -459,8 +521,14 @@ class SyncService
             if (($payload['version'] ?? 1) > $existing->version) {
                 $existing->update([
                     'text_response' => $payload['text_response'] ?? $existing->text_response,
+                    'file_path' => $payload['file_path'] ?? $existing->file_path,
+                    'storage_disk' => $payload['storage_disk'] ?? $existing->storage_disk,
+                    'file_name' => $payload['file_name'] ?? $existing->file_name,
+                    'file_type' => $payload['file_type'] ?? $existing->file_type,
+                    'file_size' => $payload['file_size'] ?? $existing->file_size,
                     'status' => $payload['status'] ?? $existing->status?->value ?? $existing->status,
                     'version' => $payload['version'],
+                    'submitted_at' => $payload['submitted_at'] ?? now(),
                     'synced_at' => now(),
                 ]);
             }
@@ -486,7 +554,13 @@ class SyncService
         ]);
     }
 
-    private function log(SyncQueue $item, string $action, string $message, string $status): void
+    private function log(
+        SyncQueue $item,
+        string $action,
+        string $message,
+        string $status,
+        ?array $metadata = null,
+    ): void
     {
         SyncLog::create([
             'user_id' => $item->user_id,
@@ -494,6 +568,7 @@ class SyncService
             'action' => $action,
             'message' => $message,
             'status' => $status,
+            'metadata' => $metadata,
         ]);
     }
 

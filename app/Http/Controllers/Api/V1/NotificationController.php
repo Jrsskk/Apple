@@ -20,4 +20,18 @@ class NotificationController extends ApiController
             ])->values()
         );
     }
+
+    public function markAsRead(Request $request, string $notification): JsonResponse
+    {
+        $request->user()->notifications()->whereKey($notification)->firstOrFail()->markAsRead();
+
+        return $this->success(null, 'Notification marked as read');
+    }
+
+    public function markAllAsRead(Request $request): JsonResponse
+    {
+        $request->user()->unreadNotifications()->update(['read_at' => now()]);
+
+        return $this->success(null, 'All notifications marked as read');
+    }
 }

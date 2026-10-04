@@ -12,6 +12,7 @@ class GradingService
     public function autoGradeAttempt(QuizAttempt $attempt): QuizAttempt
     {
         $attempt->load(['answers.question.options', 'quiz']);
+        $isNewGrade = $attempt->status !== 'graded';
 
         $correct = 0;
         $incorrect = 0;
@@ -58,7 +59,12 @@ class GradingService
             'submitted_at' => $attempt->submitted_at ?? now(),
         ]);
 
-        return $attempt->fresh();
+        $attempt = $attempt->fresh();
+        if ($isNewGrade) {
+            app(NotificationService::class)->notifyGradePosted($attempt->student, $attempt);
+        }
+
+        return $attempt;
     }
 
     public function gradeAnswer(QuizQuestion $question, QuizAnswer $answer): array

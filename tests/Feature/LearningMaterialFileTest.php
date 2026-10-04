@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class LearningMaterialFileTest extends TestCase
@@ -65,6 +66,98 @@ class LearningMaterialFileTest extends TestCase
         $download->assertOk();
         $this->assertStringContainsString('attachment', strtolower((string) $download->headers->get('Content-Disposition')));
         $this->assertStringContainsString('algebra-notes.pdf', (string) $download->headers->get('Content-Disposition'));
+    }
+
+    public function test_student_materials_are_grouped_and_filtered_by_the_enrolled_class_subject(): void
+    {
+        [$teacher, $student, $biologyClass, $biology] = $this->createClassWithStudent();
+        $teacher->update(['first_name' => 'Taylor', 'last_name' => 'Teacher']);
+        $biology->update(['name' => 'Biology']);
+
+        $year = AcademicYear::factory()->create();
+        $chemistry = Subject::factory()->create([
+            'name' => 'Chemistry',
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+        $chemistryClass = SchoolClass::create([
+            'name' => 'Chemistry 11',
+            'section' => 'B',
+            'grade_level' => '11',
+            'subject_id' => $chemistry->id,
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+        $student->enrolledClasses()->attach($chemistryClass->id);
+
+        $otherSubject = Subject::factory()->create([
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+        $otherClass = SchoolClass::create([
+            'name' => 'History 11',
+            'section' => 'C',
+            'grade_level' => '11',
+            'subject_id' => $otherSubject->id,
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $year->id,
+        ]);
+
+        $biologyMaterial = LearningMaterial::create([
+            'title' => 'Cell Structure Notes',
+            'file_path' => 'materials/cell-structure.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $biology->id,
+            'school_class_id' => $biologyClass->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+        LearningMaterial::create([
+            'title' => 'Chemical Reactions Video',
+            'file_path' => 'materials/reactions.mp4',
+            'file_type' => 'video/mp4',
+            'subject_id' => $chemistry->id,
+            'school_class_id' => $chemistryClass->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+        LearningMaterial::create([
+            'title' => 'Wrong Subject Material',
+            'file_path' => 'materials/wrong-subject.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $chemistry->id,
+            'school_class_id' => $biologyClass->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+        LearningMaterial::create([
+            'title' => 'Not Enrolled Material',
+            'file_path' => 'materials/not-enrolled.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $otherSubject->id,
+            'school_class_id' => $otherClass->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+
+        $response = $this->actingAs($student)
+            ->get(route('student.materials.index'))
+            ->assertOk()
+            ->assertSee('Biology')
+            ->assertSee('Chemistry')
+            ->assertSee('Cell Structure Notes')
+            ->assertSee('Chemical Reactions Video')
+            ->assertSee('Taylor Teacher')
+            ->assertSee($biologyMaterial->created_at->format('M j, Y'))
+            ->assertDontSee('Wrong Subject Material')
+            ->assertDontSee('Not Enrolled Material');
+
+        $response = $this->get(route('student.materials.index', ['subject_id' => $biology->id]));
+        $response->assertOk()
+            ->assertSee('Cell Structure Notes')
+            ->assertDontSee('Chemical Reactions Video')
+            ->assertDontSee('Wrong Subject Material');
+
+        $response = $this->get(route('student.materials.index', ['search' => 'Chemistry']));
+        $response->assertOk()
+            ->assertSee('Chemical Reactions Video')
+            ->assertDontSee('Cell Structure Notes');
     }
 
     public function test_teacher_can_replace_a_material_file_in_supabase_storage(): void
@@ -197,6 +290,103 @@ class LearningMaterialFileTest extends TestCase
             $download->assertHeader('Content-Type', $mimeType);
             $this->assertStringContainsString('attachment', strtolower((string) $download->headers->get('Content-Disposition')));
         }
+    }
+
+    public function test_view_infers_browser_mime_type_when_cloud_metadata_is_generic(): void
+    {
+        $this->configureSupabase();
+        [, $student, $class, $subject] = $this->createClassWithStudent();
+        Http::fake([
+            'https://supabase.test/storage/v1/object/materials/*' => Http::response('material-content'),
+        ]);
+
+        foreach ([
+            ['notes.pdf', 'application/pdf'],
+            ['diagram.png', 'image/png'],
+            ['lesson.mp4', 'video/mp4'],
+        ] as [$filename, $mimeType]) {
+            $material = LearningMaterial::create([
+                'title' => pathinfo($filename, PATHINFO_FILENAME),
+                'file_path' => 'materials/'.Str::uuid(),
+                'storage_disk' => 'supabase',
+                'original_file_name' => $filename,
+                'file_type' => 'application/octet-stream',
+                'subject_id' => $subject->id,
+                'school_class_id' => $class->id,
+                'uploaded_by' => $class->teacher_id,
+            ]);
+
+            $this->actingAs($student)
+                ->get(route('student.materials.file', $material))
+                ->assertOk()
+                ->assertHeader('Content-Type', $mimeType)
+                ->assertHeader('Content-Disposition', 'inline; filename='.$filename);
+        }
+    }
+
+    public function test_pdf_view_normalizes_pdf_mime_type_and_filename_for_inline_display(): void
+    {
+        Storage::fake('local');
+        [, $student, $class, $subject] = $this->createClassWithStudent();
+        Storage::disk('local')->put('materials/lecture', 'pdf-content');
+        $material = LearningMaterial::create([
+            'title' => 'Lecture Notes',
+            'file_path' => 'materials/lecture',
+            'file_type' => 'application/x-pdf',
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $class->teacher_id,
+        ]);
+
+        $view = $this->actingAs($student)
+            ->get(route('student.materials.file', $material))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith(
+            'inline;',
+            strtolower((string) $view->headers->get('Content-Disposition')),
+        );
+        $this->assertStringContainsString(
+            'lecture notes.pdf',
+            strtolower((string) $view->headers->get('Content-Disposition')),
+        );
+
+        $download = $this->get(route('student.materials.file', [
+            'material' => $material,
+            'download' => 1,
+        ]));
+        $download->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith(
+            'attachment;',
+            strtolower((string) $download->headers->get('Content-Disposition')),
+        );
+    }
+
+    public function test_material_view_opens_in_a_new_tab_and_download_remains_separate(): void
+    {
+        Storage::fake('local');
+        [, $student, $class, $subject] = $this->createClassWithStudent();
+        Storage::disk('local')->put('materials/notes.pdf', 'pdf-content');
+        $material = LearningMaterial::create([
+            'title' => 'Notes',
+            'file_path' => 'materials/notes.pdf',
+            'file_type' => 'application/pdf',
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $class->teacher_id,
+        ]);
+
+        $this->actingAs($student)
+            ->get(route('student.materials.index'))
+            ->assertOk()
+            ->assertSee(route('student.materials.file', $material), false)
+            ->assertSee('target="_blank"', false)
+            ->assertSee('rel="noopener"', false)
+            ->assertSee(route('student.materials.file', [
+                'material' => $material,
+                'download' => 1,
+            ]), false);
     }
 
     public function test_students_cannot_access_other_classes_files_and_missing_files_return_404(): void

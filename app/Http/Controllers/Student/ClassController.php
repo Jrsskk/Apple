@@ -20,7 +20,16 @@ class ClassController extends Controller
     public function show(SchoolClass $class): View
     {
         abort_unless(auth()->user()->enrolledClasses()->where('school_classes.id', $class->id)->exists(), 403);
-        $class->load(['subject', 'teacher', 'quizzes', 'assignments', 'materials']);
+        $studentId = auth()->id();
+        $class->load([
+            'subject',
+            'teacher',
+            'quizzes' => fn ($query) => $query->whereDoesntHave('attempts', fn ($attempts) => $attempts
+                ->where('student_id', $studentId)
+                ->whereNotNull('submitted_at')),
+            'assignments',
+            'materials',
+        ]);
 
         return view('student.classes.show', compact('class'));
     }

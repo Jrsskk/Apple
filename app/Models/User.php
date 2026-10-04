@@ -86,6 +86,11 @@ class User extends Authenticatable
         return $this->hasMany(QuizAttempt::class, 'student_id');
     }
 
+    public function fcmDeviceTokens(): HasMany
+    {
+        return $this->hasMany(FcmDeviceToken::class);
+    }
+
     public function assignmentSubmissions(): HasMany
     {
         return $this->hasMany(AssignmentSubmission::class, 'student_id');

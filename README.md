@@ -13,6 +13,27 @@
 - UUID-based idempotent synchronization
 - Database notifications, audit logs, and reports
 
+### Student offline mode
+
+The student portal registers a same-origin Service Worker and uses the Cache API
+for previously opened student pages and learning-material files. IndexedDB stores
+enrolled classes and subjects, assignment and material catalogs, explicitly
+downloaded quizzes and assignments, assignment drafts/files, quiz answers, and
+the submission sync queue. The browser retries queued submissions when it comes
+back online; students can also retry them from **Sync**.
+
+Offline content is limited to data already saved on that device. Students must
+open the pages they need while online, select **Download Offline** for each quiz,
+and open or download learning materials before disconnecting. An assignment can
+be drafted and submitted offline after its page has been opened or downloaded.
+Pages and files never visited or downloaded cannot be made available offline by
+the Service Worker. Browser storage can also be cleared or evicted, so offline
+work should be synchronized as soon as connectivity returns.
+
+Service Workers require HTTPS in production (localhost is supported for local
+development). Synchronization uses the signed-in student's Laravel session and
+the existing API authorization and validation.
+
 ## Requirements
 
 - PHP 8.2+
@@ -85,6 +106,46 @@ replacements, and deletes update existing database records and clean up old/new
 objects on failures. Existing Google Drive and Laravel-disk files remain readable;
 new uploads use Supabase Storage.
 
+### Firebase Cloud Messaging
+
+Push notifications use Firebase Cloud Messaging HTTP v1 and Laravel's existing
+database notifications. The Firebase service-account credential is server-only;
+prefer an absolute path to a protected JSON file outside the public directory.
+Alternatively, provide the service-account JSON directly through a secret manager
+environment variable. Never use a `VITE_` prefix for service-account values.
+
+```env
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CREDENTIALS=/secure/path/firebase-service-account.json
+# Or set FIREBASE_CREDENTIALS_JSON to the service-account JSON secret.
+
+FIREBASE_WEB_API_KEY=your-web-app-api-key
+FIREBASE_WEB_AUTH_DOMAIN=your-project.firebaseapp.com
+FIREBASE_WEB_PROJECT_ID=your-firebase-project-id
+FIREBASE_WEB_MESSAGING_SENDER_ID=your-messaging-sender-id
+FIREBASE_WEB_APP_ID=your-web-app-id
+FIREBASE_WEB_VAPID_KEY=your-web-push-certificate-public-key
+```
+
+Create a Firebase web app, enable Cloud Messaging, and generate a Web Push
+certificate key pair in Firebase Console → Project Settings → Cloud Messaging.
+The web app values and VAPID public key are used by the student browser; only the
+service-account credential is privileged. Serve the app over HTTPS (localhost is
+allowed for development), then run `php artisan migrate`, `php artisan
+config:clear`, and `npm run build`. Students can enable or disable browser push
+from the notification bell. The existing Sanctum student API also accepts
+authenticated `POST` and `DELETE /api/v1/device-tokens` requests for `web`,
+`android`, or `ios` tokens.
+
+Announcements, published assignments and quizzes, changes to published
+assignments/quizzes and learning materials, deadlines, grades, and synchronization
+updates are persisted in the student's database notification inbox and sent to
+registered devices. Class-specific content is sent only to active students
+enrolled in that active class when its subject matches the content subject.
+Expired Firebase registrations are automatically removed. To verify a live push,
+configure Firebase, sign in as a student on an HTTPS browser, enable push, and
+have a teacher publish or update content for that student's class.
+
 ### Legacy Google Drive files
 
 Existing learning materials stored in Google Drive continue to be served through
@@ -115,12 +176,23 @@ POST /api/v1/auth/login
 Endpoints:
 
 - `GET /api/v1/classes`
-- `GET /api/v1/quizzes/{id}`
-- `GET /api/v1/assignments/{id}`
-- `POST /api/v1/sync`
-- `POST /api/v1/sync/now`
+- `GET /api/v1/quizzes` and `GET /api/v1/quizzes/{id}/download` (quiz questions/options)
+- `GET /api/v1/assignments` and `GET /api/v1/assignments/{id}/download` (assignment instructions and attachment URL)
+- `GET /api/v1/assignments/{id}/attachment` (authenticated assignment attachment download)
+- `GET /api/v1/materials/{id}/download` and `GET /api/v1/materials/{id}/file` (material metadata and authenticated file download)
+- `POST /api/v1/submissions/quiz` and `POST /api/v1/submissions/assignment` (validated submissions; assignment files use multipart field `file`)
+- `GET /api/v1/sync` (pull updated student activities, announcements, materials, and grades; accepts an optional `since` timestamp)
+- `GET /api/v1/sync/status` (per-student pending, syncing, synced, and failed counts with last successful sync time)
+- `POST /api/v1/sync` (submit one UUID-idempotent activity; accepts `quiz_attempt` or `assignment_submission`)
+- `POST /api/v1/sync/batch` (retry pending/failed server-side queue entries)
 - `GET /api/v1/grades`
 - `GET /api/v1/announcements`
+
+All API routes except login require a Sanctum student token. Offline clients should
+generate and retain a UUID in `sync_uuid` for each submission across retries.
+The server validates the activity against the authenticated student's class
+access and persists sync attempts in `sync_queue`; replaying the same UUID does
+not create a second quiz attempt or assignment submission.
 
 ## Testing
 

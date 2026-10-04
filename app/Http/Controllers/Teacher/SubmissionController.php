@@ -104,10 +104,7 @@ class SubmissionController extends Controller
         ]);
 
         $submission->update($data);
-        app(NotificationService::class)->notifyGradeReleased(
-            $submission->student,
-            $submission->assignment->title
-        );
+        app(NotificationService::class)->notifyAssignmentGrade($submission);
 
         return back()->with('success', 'Submission graded.');
     }

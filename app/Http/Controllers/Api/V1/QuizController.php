@@ -18,6 +18,9 @@ class QuizController extends ApiController
 
         $quizzes = Quiz::whereIn('school_class_id', $classIds)
             ->where('status', 'published')
+            ->whereDoesntHave('attempts', fn ($query) => $query
+                ->where('student_id', $user->id)
+                ->whereNotNull('submitted_at'))
             ->with('schoolClass.subject')
             ->latest('starts_at')
             ->get();

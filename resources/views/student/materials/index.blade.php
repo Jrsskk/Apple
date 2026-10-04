@@ -4,7 +4,7 @@
 
 @section('content')
 
-<div class="mx-auto max-w-5xl">
+<div class="mx-auto max-w-6xl">
 
     {{-- Page Header --}}
     <div class="mb-6">
@@ -40,28 +40,80 @@
     </div>
 
 
-    {{-- Material Count --}}
+    {{-- Subject filters and search --}}
+    <form method="GET" action="{{ route('student.materials.index') }}" class="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.7fr)_auto_auto] sm:items-end">
+            <label class="block">
+                <span class="mb-1.5 block text-xs font-semibold text-slate-600">Search materials</span>
+                <input
+                    type="search"
+                    name="search"
+                    value="{{ $search }}"
+                    placeholder="Title, subject, teacher, or class"
+                    class="w-full rounded-xl border-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                >
+            </label>
+
+            <label class="block">
+                <span class="mb-1.5 block text-xs font-semibold text-slate-600">Subject</span>
+                <select
+                    name="subject_id"
+                    class="w-full rounded-xl border-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                >
+                    <option value="">All subjects</option>
+                    @foreach($subjects as $subject)
+                        <option value="{{ $subject->id }}" @selected((string) $selectedSubjectId === (string) $subject->id)>
+                            {{ $subject->name }}
+                        </option>
+                    @endforeach
+                </select>
+            </label>
+
+            <button
+                type="submit"
+                class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            >
+                Filter
+            </button>
+
+            @if(filled($search) || filled($selectedSubjectId))
+                <a
+                    href="{{ route('student.materials.index') }}"
+                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                    Clear
+                </a>
+            @endif
+        </div>
+    </form>
+
     <div class="mb-4 flex items-center justify-between">
-
         <div>
-            <p class="text-sm font-semibold text-slate-800">
-                Your Materials
-            </p>
-
+            <p class="text-sm font-semibold text-slate-800">Your Materials</p>
             <p class="text-xs text-slate-500">
                 {{ $materials->total() }}
                 {{ \Illuminate\Support\Str::plural('material', $materials->total()) }}
-                available
+                {{ filled($search) || filled($selectedSubjectId) ? 'found' : 'available' }}
             </p>
         </div>
-
     </div>
 
-
     {{-- Materials --}}
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-
-        @forelse($materials as $material)
+    @forelse($materialsBySubject as $subjectMaterials)
+        @php
+            $sectionSubject = $subjectMaterials->first()->schoolClass->subject;
+        @endphp
+        <section class="mb-8" aria-labelledby="subject-{{ $sectionSubject->id }}">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                <h3 id="subject-{{ $sectionSubject->id }}" class="text-lg font-bold text-slate-900">
+                    {{ $sectionSubject->name }}
+                </h3>
+                <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                    {{ $subjectMaterials->count() }} {{ \Illuminate\Support\Str::plural('material', $subjectMaterials->count()) }}
+                </span>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                @foreach($subjectMaterials as $material)
 
             @php
                 $fileType = strtolower((string) $material->file_type);
@@ -76,11 +128,15 @@
 
                     str_contains($fileType, 'image') ||
                     str_contains($fileType, 'jpg') ||
-                    str_contains($fileType, 'png')
+                    str_contains($fileType, 'jpeg') ||
+                    str_contains($fileType, 'png') ||
+                    str_contains($fileType, 'webp') ||
+                    str_contains($fileType, 'gif')
                         => ['bg-pink-50', 'text-pink-600'],
 
                     str_contains($fileType, 'presentation') ||
-                    str_contains($fileType, 'ppt')
+                    str_contains($fileType, 'ppt') ||
+                    str_contains($fileType, 'powerpoint')
                         => ['bg-orange-50', 'text-orange-600'],
 
                     str_contains($fileType, 'document') ||
@@ -93,6 +149,19 @@
 
                 $iconBg = $iconStyle[0];
                 $iconText = $iconStyle[1];
+                $typeLabel = match (true) {
+                    str_contains($fileType, 'pdf') => 'PDF',
+                    str_contains($fileType, 'video') || str_contains($fileType, 'mp4') => 'Video',
+                    str_contains($fileType, 'presentation') || str_contains($fileType, 'ppt') => 'Presentation',
+                    str_contains($fileType, 'image') ||
+                    str_contains($fileType, 'jpg') ||
+                    str_contains($fileType, 'jpeg') ||
+                    str_contains($fileType, 'png') ||
+                    str_contains($fileType, 'webp') ||
+                    str_contains($fileType, 'gif') => 'Image',
+                    str_contains($fileType, 'document') || str_contains($fileType, 'doc') => 'Document',
+                    default => strtoupper((string) $material->file_type) ?: 'File',
+                };
             @endphp
 
 
@@ -130,7 +199,10 @@
                             @elseif(
                                 str_contains($fileType, 'image') ||
                                 str_contains($fileType, 'jpg') ||
-                                str_contains($fileType, 'png')
+                                str_contains($fileType, 'jpeg') ||
+                                str_contains($fileType, 'png') ||
+                                str_contains($fileType, 'webp') ||
+                                str_contains($fileType, 'gif')
                             )
 
                                 <svg
@@ -191,6 +263,11 @@
                             <p class="mt-1 truncate text-xs text-slate-500">
                                 {{ $material->schoolClass?->display_name ?? 'Class material' }}
                             </p>
+                            <p class="mt-1 truncate text-xs text-slate-500">
+                                {{ $material->uploader?->name ?? 'Teacher' }}
+                                <span aria-hidden="true">·</span>
+                                {{ $material->created_at?->format('M j, Y') }}
+                            </p>
 
                         </div>
 
@@ -201,12 +278,10 @@
                     <div class="mt-4 flex items-center gap-2">
 
                         <span class="rounded-full {{ $iconBg }} px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide {{ $iconText }}">
-                            {{ $material->file_type }}
+                            {{ $typeLabel }}
                         </span>
 
-                        <span class="text-xs text-slate-400">
-                            Learning material
-                        </span>
+                        <span class="text-xs text-slate-400">Learning material</span>
 
                     </div>
 
@@ -220,6 +295,8 @@
 
                         <a
                             href="{{ route('student.materials.file', $material) }}"
+                            target="_blank"
+                            rel="noopener"
                             class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.98]"
                         >
 
@@ -241,7 +318,7 @@
                                 />
                             </svg>
 
-                            Open
+                            View
 
                         </a>
 
@@ -271,12 +348,14 @@
 
                 </div>
 
-            </article>
-
-        @empty
+                </article>
+                @endforeach
+            </div>
+        </section>
+    @empty
 
             {{-- Empty State --}}
-            <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center sm:col-span-2 lg:col-span-3">
+            <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
 
                 <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
 
@@ -295,19 +374,19 @@
                 </div>
 
                 <h3 class="mt-4 font-bold text-slate-800">
-                    No materials yet
+                    {{ filled($search) || filled($selectedSubjectId) ? 'No matching materials' : 'No materials yet' }}
                 </h3>
 
                 <p class="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-slate-500">
-                    Materials shared by your teachers will appear here.
-                    Check back later for new learning resources.
+                    @if(filled($search) || filled($selectedSubjectId))
+                        Try a different search or clear the selected subject filter.
+                    @else
+                        Materials shared by your teachers will appear here. Check back later for new learning resources.
+                    @endif
                 </p>
 
             </div>
-
-        @endforelse
-
-    </div>
+    @endforelse
 
 
     {{-- Pagination --}}

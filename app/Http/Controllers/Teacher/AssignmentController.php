@@ -107,7 +107,14 @@ class AssignmentController extends Controller
         ]);
 
         try {
-            $this->assignmentService->update($assignment, $data, $request->file('attachment'));
+            $assignment = $this->assignmentService->update($assignment, $data, $request->file('attachment'));
+            if ($assignment->status?->value === 'published') {
+                $recipients = $this->notifications->studentsForClassSubject(
+                    (int) $assignment->school_class_id,
+                    (int) $assignment->subject_id,
+                );
+                $this->notifications->notifyAssignmentUpdated($assignment, $recipients);
+            }
         } catch (SupabaseStorageException $exception) {
             return back()->withInput()->withErrors(['attachment' => $exception->getMessage()]);
         }
@@ -171,10 +178,11 @@ class AssignmentController extends Controller
     {
         abort_unless($assignment->teacher_id === auth()->id(), 403);
         $assignment->update(['status' => 'published', 'posted_at' => now()]);
-        $assignment->load('schoolClass.students');
-        foreach ($assignment->schoolClass->students as $student) {
-            $this->notifications->notifyNewAssignment($student, $assignment->title);
-        }
+        $recipients = $this->notifications->studentsForClassSubject(
+            (int) $assignment->school_class_id,
+            (int) $assignment->subject_id,
+        );
+        $this->notifications->notifyAssignmentPosted($assignment, $recipients);
 
         return back()->with('success', 'Assignment published.');
     }
@@ -188,7 +196,7 @@ class AssignmentController extends Controller
             'status' => 'required|in:graded,returned',
         ]);
         $submission->update($data);
-        app(NotificationService::class)->notifyGradeReleased($submission->student, $submission->assignment->title);
+        app(NotificationService::class)->notifyAssignmentGrade($submission);
 
         return back()->with('success', 'Submission graded.');
     }

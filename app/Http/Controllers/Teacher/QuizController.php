@@ -80,6 +80,13 @@ class QuizController extends Controller
     public function store(StoreQuizRequest $request): RedirectResponse
     {
         $quiz = $this->quizService->create($request->validated(), $request->user());
+        if ($quiz->isPublished()) {
+            $recipients = $this->notifications->studentsForClassSubject(
+                (int) $quiz->school_class_id,
+                (int) $quiz->subject_id,
+            );
+            $this->notifications->notifyQuizPublished($quiz, $recipients);
+        }
 
         return redirect()->route('teacher.quizzes.edit', $quiz)->with('success', 'Quiz created.');
     }
@@ -97,7 +104,19 @@ class QuizController extends Controller
     public function update(StoreQuizRequest $request, Quiz $quiz): RedirectResponse
     {
         $this->authorizeTeacher($quiz);
-        $this->quizService->update($quiz, $request->validated());
+        $wasPublished = $quiz->isPublished();
+        $quiz = $this->quizService->update($quiz, $request->validated());
+        if ($quiz->isPublished()) {
+            $recipients = $this->notifications->studentsForClassSubject(
+                (int) $quiz->school_class_id,
+                (int) $quiz->subject_id,
+            );
+            if ($wasPublished) {
+                $this->notifications->notifyQuizUpdated($quiz, $recipients);
+            } else {
+                $this->notifications->notifyQuizPublished($quiz, $recipients);
+            }
+        }
 
         return back()->with('success', 'Quiz updated.');
     }
@@ -128,9 +147,12 @@ class QuizController extends Controller
         }
 
         $this->quizService->publish($quiz, $request->user());
-        $quiz->load('schoolClass.students');
-        foreach ($quiz->schoolClass->students as $student) {
-            $this->notifications->notifyNewQuiz($student, $quiz->title);
+        $recipients = $this->notifications->studentsForClassSubject(
+            (int) $quiz->school_class_id,
+            (int) $quiz->subject_id,
+        );
+        $this->notifications->notifyQuizPublished($quiz, $recipients);
+        foreach ($recipients as $student) {
             QuizPublished::dispatch($quiz, $student->id);
         }
 

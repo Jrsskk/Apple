@@ -6,17 +6,61 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#4f46e5">
+    <meta name="edusync-portal" content="student">
+
+    @php
+        $firebaseWeb = config('services.firebase.web', []);
+        $firebaseWebConfiguration = [
+            'apiKey' => $firebaseWeb['api_key'] ?? null,
+            'authDomain' => $firebaseWeb['auth_domain'] ?? null,
+            'projectId' => $firebaseWeb['project_id'] ?? null,
+            'messagingSenderId' => $firebaseWeb['messaging_sender_id'] ?? null,
+            'appId' => $firebaseWeb['app_id'] ?? null,
+            'vapidKey' => $firebaseWeb['vapid_key'] ?? null,
+        ];
+        $firebaseMessagingReady = collect($firebaseWebConfiguration)->every(fn ($value) => filled($value));
+    @endphp
 
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
     <title>@yield('title', 'Home') - EduSync</title>
 
+    @if($firebaseMessagingReady)
+        <script>
+            window.EduSyncFirebaseConfiguration = @json($firebaseWebConfiguration);
+        </script>
+        <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
+    @else
+        <script>window.EduSyncFirebaseConfiguration = null;</script>
+    @endif
+
     @vite([
         'resources/css/app.css',
         'resources/js/app.js',
-        'resources/js/offline-sync.js'
+        'resources/js/offline-sync.js',
+        'resources/js/firebase-messaging.js'
     ])
+
+    <script>
+        window.EduSyncOfflineReady = new Promise((resolve) => {
+            if (window.EduSyncOffline) {
+                resolve(window.EduSyncOffline);
+                return;
+            }
+
+            const onReady = () => {
+                clearTimeout(timeout);
+                resolve(window.EduSyncOffline);
+            };
+            const timeout = setTimeout(() => {
+                window.removeEventListener('edusync:offline-ready', onReady);
+                resolve(null);
+            }, 10000);
+            window.addEventListener('edusync:offline-ready', onReady, { once: true });
+        });
+    </script>
 
     @stack('styles')
 </head>
@@ -297,6 +341,81 @@
                 <div class="flex items-center gap-3">
 
                     @include('components.sync-status')
+
+                    @php
+                        $unreadNotifications = auth()->user()->unreadNotifications()->latest()->limit(5)->get();
+                        $unreadNotificationCount = auth()->user()->unreadNotifications()->count();
+                    @endphp
+                    <div class="relative" x-data="{ notificationsOpen: false }" @click.outside="notificationsOpen = false">
+                        <button
+                            type="button"
+                            @click="notificationsOpen = !notificationsOpen"
+                            class="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                            aria-label="Notifications"
+                            :aria-expanded="notificationsOpen.toString()"
+                        >
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                    d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+                            </svg>
+                            @if($unreadNotificationCount > 0)
+                                <span class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                                    {{ $unreadNotificationCount > 99 ? '99+' : $unreadNotificationCount }}
+                                </span>
+                            @endif
+                        </button>
+
+                        <div
+                            x-cloak
+                            x-show="notificationsOpen"
+                            x-transition
+                            class="absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:w-96"
+                        >
+                            <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                                <p class="font-semibold text-slate-900">Notifications</p>
+                                @if($unreadNotificationCount > 0)
+                                    <form method="POST" action="{{ route('student.notifications.read-all') }}">
+                                        @csrf
+                                        <button class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">Mark all as read</button>
+                                    </form>
+                                @endif
+                            </div>
+
+                            <div class="max-h-96 overflow-y-auto">
+                                @forelse($unreadNotifications as $notification)
+                                    <div class="border-b border-slate-100 px-4 py-3 last:border-0">
+                                        <p class="text-sm font-semibold text-slate-900">{{ $notification->data['title'] ?? 'Notification' }}</p>
+                                        <p class="mt-1 text-sm text-slate-600">{{ $notification->data['message'] ?? '' }}</p>
+                                        <div class="mt-2 flex items-center justify-between gap-2">
+                                            <time class="text-xs text-slate-400" datetime="{{ $notification->created_at->toIso8601String() }}">
+                                                {{ $notification->created_at->format('M j, Y g:i A') }}
+                                            </time>
+                                            <form method="POST" action="{{ route('student.notifications.read', $notification->id) }}">
+                                                @csrf
+                                                <button class="text-xs font-medium text-indigo-600 hover:text-indigo-800">Mark as read</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                @empty
+                                    <p class="px-4 py-5 text-sm text-slate-500">You are all caught up.</p>
+                                @endforelse
+                            </div>
+
+                            <div class="border-t border-slate-100 p-3">
+                                @if($firebaseMessagingReady)
+                                    <button
+                                        id="enable-push-notifications"
+                                        type="button"
+                                        class="w-full rounded-lg bg-indigo-50 px-3 py-2 text-left text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+                                    >Enable push notifications</button>
+                                    <p id="push-notification-status" class="mt-2 text-xs text-slate-500" role="status" aria-live="polite"></p>
+                                @endif
+                                <a href="{{ route('student.notifications') }}" class="mt-2 block text-center text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+                                    View all notifications
+                                </a>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="hidden h-9 w-9 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700 sm:flex">
                         {{ strtoupper(substr(auth()->user()->first_name, 0, 1)) }}

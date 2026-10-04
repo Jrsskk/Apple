@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Channels\FcmPushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -16,7 +17,7 @@ class SyncNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', FcmPushChannel::class];
     }
 
     public function toArray(object $notifiable): array

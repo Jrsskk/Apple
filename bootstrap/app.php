@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         'middleware' => ['auth:sanctum', 'active', 'role:student'],
     ])
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->statefulApi();
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
         ]);

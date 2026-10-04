@@ -73,6 +73,55 @@ class QuizGradingTest extends TestCase
         $response->assertSeeText('My Grades');
     }
 
+    public function test_submitted_quizzes_are_removed_from_student_available_quizzes(): void
+    {
+        $this->seed(\Database\Seeders\EduSyncSeeder::class);
+
+        $student = User::where('email', 'student@edusync.test')->firstOrFail();
+        $quiz = Quiz::firstOrFail();
+        $quiz->update(['deadline' => null]);
+
+        $availableQuiz = $quiz->replicate();
+        $availableQuiz->title = 'Another available quiz';
+        $availableQuiz->save();
+
+        QuizAttempt::create([
+            'quiz_id' => $quiz->id,
+            'student_id' => $student->id,
+            'sync_uuid' => Str::uuid(),
+            'started_at' => now()->subMinutes(5),
+            'submitted_at' => now(),
+            'completed_at' => now(),
+            'status' => 'graded',
+        ]);
+
+        QuizAttempt::create([
+            'quiz_id' => $availableQuiz->id,
+            'student_id' => $student->id,
+            'sync_uuid' => Str::uuid(),
+            'started_at' => now(),
+            'status' => 'in_progress',
+        ]);
+
+        $upcomingQuizzes = app(\App\Services\DashboardService::class)
+            ->studentStats($student)['upcoming_quizzes'];
+
+        $this->assertFalse($upcomingQuizzes->contains('id', $quiz->id));
+        $this->assertTrue($upcomingQuizzes->contains('id', $availableQuiz->id));
+
+        $token = $student->createToken('test')->plainTextToken;
+        $apiQuizIds = collect($this->withToken($token)->getJson('/api/v1/quizzes')->assertOk()->json('data'))
+            ->pluck('id');
+        $this->assertFalse($apiQuizIds->contains($quiz->id));
+        $this->assertTrue($apiQuizIds->contains($availableQuiz->id));
+
+        $this->actingAs($student)
+            ->get(route('student.classes.show', $quiz->school_class_id))
+            ->assertOk()
+            ->assertDontSeeText($quiz->title)
+            ->assertSeeText($availableQuiz->title);
+    }
+
     public function test_teacher_can_create_a_quiz_without_a_subject_hidden_field(): void
     {
         $academicYear = AcademicYear::create([

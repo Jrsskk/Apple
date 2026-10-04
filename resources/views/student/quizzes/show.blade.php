@@ -39,16 +39,17 @@
     const quizId = {{ $quiz->id }};
     const statusEl = document.getElementById('download-status');
     const offlineLink = document.getElementById('offline-take-link');
+    const offline = await window.EduSyncOfflineReady;
 
-    if (window.EduSyncOffline && await window.EduSyncOffline.isQuizDownloaded(quizId)) {
+    if (offline && await offline.isQuizDownloaded(quizId)) {
         statusEl.classList.remove('hidden');
         offlineLink.classList.remove('hidden');
     }
 
     document.getElementById('download-quiz')?.addEventListener('click', async () => {
-        if (!window.EduSyncOffline) return alert('Offline module unavailable.');
+        if (!offline) return alert('Offline module unavailable. Reload this page while online.');
         try {
-            const json = await window.EduSyncOffline.downloadQuiz(quizId);
+            const json = await offline.downloadQuiz(quizId);
             if (json.success) {
                 statusEl.classList.remove('hidden');
                 offlineLink.classList.remove('hidden');

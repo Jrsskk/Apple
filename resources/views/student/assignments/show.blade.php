@@ -65,6 +65,7 @@
 (async function() {
     const assignmentId = {{ $assignment->id }};
     const syncUuid = @json($submission->sync_uuid);
+    const submissionVersion = @json($submission->version + 1);
     const statusEl = document.getElementById('download-status');
     const textEl = document.getElementById('text-response');
     const fileEl = document.getElementById('file-input');
@@ -86,20 +87,57 @@
         if (draft?.text_response && textEl && !textEl.value) {
             textEl.value = draft.text_response;
         }
+        if (draft?.file && fileEl && typeof DataTransfer !== 'undefined') {
+            const transfer = new DataTransfer();
+            transfer.items.add(new File(
+                [draft.file],
+                draft.file_name || 'assignment-attachment',
+                { type: draft.file.type || 'application/octet-stream' },
+            ));
+            fileEl.files = transfer.files;
+            fileEl.dispatchEvent(new Event('change'));
+        }
     }
 
     document.getElementById('save-draft-btn')?.addEventListener('click', async () => {
         const text = textEl?.value || '';
-        if (navigator.onLine) {
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = '{{ route('student.assignments.draft', $assignment) }}';
-            form.innerHTML = `@csrf<input name="text_response" value="${text.replace(/"/g,'&quot;')}">`;
-            document.body.appendChild(form);
-            form.submit();
-        } else if (window.EduSyncOffline) {
-            await window.EduSyncOffline.saveAssignmentDraft(assignmentId, { text_response: text });
-            alert('Draft saved locally.');
+        if (window.EduSyncOffline) {
+            try {
+                await window.EduSyncOffline.saveAssignmentDraft(assignmentId, {
+                    text_response: text,
+                    file: fileEl?.files?.[0] || null,
+                });
+            } catch (error) {
+                if (uploadStatusEl) uploadStatusEl.textContent = `Draft could not be saved locally: ${error.message}`;
+                return;
+            }
+        }
+        if (!window.EduSyncOffline) {
+            if (uploadStatusEl) uploadStatusEl.textContent = 'Offline draft storage is unavailable. Reload the page and try again.';
+            return;
+        }
+
+        const draftData = new FormData();
+        draftData.set('_token', '{{ csrf_token() }}');
+        draftData.set('text_response', text);
+        try {
+            const response = await fetch('{{ route('student.assignments.draft', $assignment) }}', {
+                method: 'POST',
+                headers: { Accept: 'text/html' },
+                credentials: 'same-origin',
+                body: draftData,
+            });
+            if (!response.ok) {
+                if (uploadStatusEl) uploadStatusEl.textContent = `Draft could not be saved on the server (${response.status}). The local copy is still on this device.`;
+                return;
+            }
+            window.location.assign(response.url);
+        } catch (error) {
+            if (error instanceof TypeError || error.name === 'AbortError') {
+                alert('Draft saved locally on this device. Submit it after reconnecting.');
+                return;
+            }
+            if (uploadStatusEl) uploadStatusEl.textContent = `Draft could not be saved: ${error.message}`;
         }
     });
 
@@ -114,19 +152,46 @@
     });
 
     document.getElementById('assignment-form')?.addEventListener('submit', async (e) => {
-        if (navigator.onLine) {
-            if (uploadStatusEl) uploadStatusEl.textContent = 'Uploading submission…';
-            return;
-        }
         e.preventDefault();
         if (!window.EduSyncOffline) return alert('Offline submit unavailable.');
-        await window.EduSyncOffline.submitAssignmentOffline(assignmentId, {
-            sync_uuid: syncUuid,
-            text_response: textEl?.value,
-            status: 'submitted',
-        });
-        alert('Submitted offline. Will sync when online.');
-        window.location.href = '/student/sync';
+        const form = e.currentTarget;
+        const submitButton = form.querySelector('[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        if (uploadStatusEl) uploadStatusEl.textContent = 'Submitting…';
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { Accept: 'text/html' },
+                credentials: 'same-origin',
+                body: new FormData(form),
+            });
+            if (!response.ok) {
+                if (uploadStatusEl) uploadStatusEl.textContent = `Submission failed (${response.status}). Your response remains on this page.`;
+                if (submitButton) submitButton.disabled = false;
+                return;
+            }
+            window.location.assign(response.url);
+        } catch (error) {
+            if (!(error instanceof TypeError || error.name === 'AbortError')) {
+                if (uploadStatusEl) uploadStatusEl.textContent = `Submission could not be sent: ${error.message}`;
+                if (submitButton) submitButton.disabled = false;
+                return;
+            }
+            try {
+                await window.EduSyncOffline.submitAssignmentOffline(assignmentId, {
+                    sync_uuid: syncUuid,
+                    version: submissionVersion,
+                    text_response: textEl?.value,
+                    file: fileEl?.files?.[0] || null,
+                    status: 'submitted',
+                });
+                alert('Submission saved on this device. It will sync when you reconnect.');
+                window.location.href = '/student/sync';
+            } catch (queueError) {
+                if (uploadStatusEl) uploadStatusEl.textContent = `Submission could not be saved locally: ${queueError.message}`;
+                if (submitButton) submitButton.disabled = false;
+            }
+        }
     });
 
     document.getElementById('download-assignment')?.addEventListener('click', async () => {

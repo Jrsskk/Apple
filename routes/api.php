@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AnnouncementController;
 use App\Http\Controllers\Api\V1\AssignmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClassController;
+use App\Http\Controllers\Api\V1\DeviceTokenController;
 use App\Http\Controllers\Api\V1\GradeController;
 use App\Http\Controllers\Api\V1\MaterialController;
 use App\Http\Controllers\Api\V1\NotificationController;
@@ -32,6 +33,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('/assignments', [AssignmentController::class, 'index']);
         Route::get('/assignments/{assignment}', [AssignmentController::class, 'show']);
         Route::get('/assignments/{assignment}/download', [AssignmentController::class, 'download']);
+        Route::get('/assignments/{assignment}/attachment', [AssignmentController::class, 'attachment'])
+            ->name('assignments.attachment');
 
         Route::get('/materials', [MaterialController::class, 'index']);
         Route::get('/materials/{material}', [MaterialController::class, 'show']);
@@ -42,6 +45,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('/submissions/assignment', [SubmissionController::class, 'submitAssignment']);
 
         Route::get('/sync', [SyncController::class, 'index']);
+        Route::get('/sync/status', [SyncController::class, 'status']);
         Route::post('/sync', [SyncController::class, 'store']);
         Route::post('/sync/batch', [SyncController::class, 'syncNow']);
         Route::post('/sync/now', [SyncController::class, 'syncNow']);
@@ -51,5 +55,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('/announcements', [AnnouncementController::class, 'index']);
         Route::get('/announcements/{announcement}', [AnnouncementController::class, 'show']);
         Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::post('/device-tokens', [DeviceTokenController::class, 'store']);
+        Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
     });
 });

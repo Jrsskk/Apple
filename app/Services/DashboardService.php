@@ -68,6 +68,9 @@ class DashboardService
         return [
             'upcoming_quizzes' => Quiz::whereIn('school_class_id', $classIds)
                 ->where('status', QuizStatus::Published)
+                ->whereDoesntHave('attempts', fn ($query) => $query
+                    ->where('student_id', $student->id)
+                    ->whereNotNull('submitted_at'))
                 ->where(fn ($query) => $query->whereNull('deadline')->orWhere('deadline', '>=', now()))
                 ->orderBy('deadline')
                 ->take(5)->get(),
@@ -131,8 +134,11 @@ class DashboardService
     private function pendingActivitiesCount(User $student, $classIds): int
     {
         $quizzes = Quiz::whereIn('school_class_id', $classIds)->where('status', QuizStatus::Published)->pluck('id');
-        $attempted = QuizAttempt::where('student_id', $student->id)->whereIn('quiz_id', $quizzes)->pluck('quiz_id');
-        $pendingQuizzes = $quizzes->diff($attempted)->count();
+        $submitted = QuizAttempt::where('student_id', $student->id)
+            ->whereIn('quiz_id', $quizzes)
+            ->whereNotNull('submitted_at')
+            ->pluck('quiz_id');
+        $pendingQuizzes = $quizzes->diff($submitted)->count();
 
         $assignments = Assignment::whereIn('school_class_id', $classIds)->where('status', QuizStatus::Published)->pluck('id');
         $submitted = AssignmentSubmission::where('student_id', $student->id)->whereIn('assignment_id', $assignments)->whereNotIn('status', ['not_started'])->pluck('assignment_id');
