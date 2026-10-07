@@ -171,7 +171,11 @@ class SyncService
             ? $user->enrolledClasses()->wherePivot('enrolled_at', '>=', $since)->pluck('school_classes.id')->all()
             : [];
 
-        $classQuery = $user->enrolledClasses()->with(['subject', 'teacher:id,first_name,middle_name,last_name,email', 'materials']);
+        $classQuery = $user->enrolledClasses()->with([
+            'subject',
+            'teacher:id,first_name,middle_name,last_name,email',
+            'materials' => fn ($query) => $query->forConsistentClassSubject(),
+        ]);
         $classes = $classQuery->get()->map(fn (SchoolClass $class) => [
             'id' => $class->id,
             'name' => $class->name,
@@ -274,6 +278,7 @@ class SyncService
                     ],
                     'attachment_path' => $assignment->attachment_path,
                     'posted_at' => $assignment->posted_at?->toIso8601String(),
+                    'starts_at' => $assignment->starts_at?->toIso8601String(),
                     'deadline' => $assignment->deadline?->toIso8601String(),
                     'due_at' => $assignment->due_at,
                     'max_score' => $assignment->max_score,
@@ -299,7 +304,9 @@ class SyncService
             ->get()
             ->filter(fn ($announcement) => $user->can('view', $announcement));
 
-        $materialQuery = LearningMaterial::withTrashed()->whereIn('school_class_id', $classIds);
+        $materialQuery = LearningMaterial::withTrashed()
+            ->whereIn('school_class_id', $classIds)
+            ->forConsistentClassSubject();
         if ($since) {
             $materialQuery->where(function ($q) use ($since, $newlyEnrolledClassIds) {
                 $q->where('updated_at', '>', $since);

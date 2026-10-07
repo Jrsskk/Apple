@@ -7,6 +7,13 @@
 
     <x-auth-session-status class="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" :status="session('status')" />
 
+    @if (Route::has('register'))
+        <p class="mb-6 text-center text-sm text-slate-600">
+            New student?
+            <a class="font-semibold text-blue-700 hover:text-blue-900" href="{{ route('register') }}">Create an Account</a>
+        </p>
+    @endif
+
     <form method="POST" action="{{ route('login') }}" class="space-y-5" id="login-form">
         @csrf
         <div>

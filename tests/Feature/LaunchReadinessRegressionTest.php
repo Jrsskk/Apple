@@ -599,6 +599,40 @@ class LaunchReadinessRegressionTest extends TestCase
         ]);
     }
 
+    public function test_teacher_can_set_assignment_start_date_before_its_deadline(): void
+    {
+        $this->seed(\Database\Seeders\EduSyncSeeder::class);
+
+        $teacher = User::where('email', 'teacher@edusync.test')->firstOrFail();
+        $class = SchoolClass::firstOrFail();
+
+        $this->actingAs($teacher)
+            ->post(route('teacher.assignments.store'), [
+                'title' => 'Scheduled assignment',
+                'school_class_id' => $class->id,
+                'subject_id' => $class->subject_id,
+                'starts_at' => '2026-10-10T09:00',
+                'deadline' => '2026-10-12T17:00',
+                'max_score' => 100,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('assignments', [
+            'title' => 'Scheduled assignment',
+            'starts_at' => '2026-10-10 09:00:00',
+            'deadline' => '2026-10-12 17:00:00',
+        ]);
+
+        $this->post(route('teacher.assignments.store'), [
+            'title' => 'Invalid date range',
+            'school_class_id' => $class->id,
+            'subject_id' => $class->subject_id,
+            'starts_at' => '2026-10-12T17:00',
+            'deadline' => '2026-10-10T09:00',
+            'max_score' => 100,
+        ])->assertSessionHasErrors('deadline');
+    }
+
     public function test_incomplete_quiz_cannot_be_created_as_published(): void
     {
         $this->seed(\Database\Seeders\EduSyncSeeder::class);

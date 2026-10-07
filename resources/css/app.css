@@ -8,6 +8,10 @@
   ::selection { @apply bg-blue-200 text-blue-950; }
 }
 @layer components {
+  .nav-link { @apply block rounded px-3 py-2 text-sm text-indigo-100 transition hover:bg-indigo-800; }
+  .nav-link.active { @apply bg-indigo-700 font-medium text-white; }
+  .t-nav { @apply block rounded px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-800; }
+  .t-nav.active { @apply bg-emerald-700 font-medium text-white; }
   .portal-shell { background: radial-gradient(circle at 88% 0%, rgba(37,99,235,.12), transparent 28rem), radial-gradient(circle at 12% 100%, rgba(5,150,105,.07), transparent 24rem), #f7f9fc; }
   .portal-sidebar { background: radial-gradient(circle at 20% 5%, rgba(37,99,235,.3), transparent 18rem), linear-gradient(165deg,#020617 0%,#0f172a 65%,#082f49 140%); }
   .portal-logo { background: linear-gradient(135deg, #38bdf8, #2563eb); color: white; }
@@ -120,6 +124,7 @@
   }
 }
 @layer utilities {
+  [x-cloak] { display: none !important; }
   .animate-fade-up { animation: fade-up .45s ease-out both; }
   .animate-soft-pulse { animation: soft-pulse 2.4s ease-in-out infinite; }
 }

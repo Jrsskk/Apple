@@ -28,6 +28,10 @@
     </div>
     <div class="grid sm:grid-cols-2 gap-4">
         <div>
+            <label class="block text-sm font-medium mb-1">Start date</label>
+            <input type="datetime-local" name="starts_at" value="{{ old('starts_at') }}" class="w-full rounded-lg border-slate-300">
+        </div>
+        <div>
             <label class="block text-sm font-medium mb-1">Deadline</label>
             <input type="datetime-local" name="deadline" value="{{ old('deadline') }}" class="w-full rounded-lg border-slate-300">
         </div>

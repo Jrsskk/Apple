@@ -28,14 +28,26 @@ class QuizController extends Controller
 
     public function index(Request $request): Response
     {
+        $classes = $request->user()->taughtClasses()->with('subject:id,name')->get();
+        $classIds = $classes->pluck('id');
+        $subjectId = $request->integer('subject_id') ?: null;
         $quizzes = Quiz::where('teacher_id', $request->user()->id)
+            ->whereIn('school_class_id', $classIds)
+            ->whereHas('schoolClass', fn ($query) => $query
+                ->whereColumn('school_classes.subject_id', 'quizzes.subject_id'))
+            ->when($subjectId, fn ($query) => $query->where('subject_id', $subjectId))
             ->with(['schoolClass', 'subject'])
             ->withCount('questions')
+            ->orderBy('subject_id')
+            ->orderBy('school_class_id')
             ->latest()
-            ->paginate(15);
+            ->paginate(15)
+            ->withQueryString();
 
         return Inertia::render('Teacher/Quizzes/Index', [
             'quizzes' => $quizzes,
+            'subjects' => $classes->pluck('subject')->filter()->unique('id')->values(),
+            'filters' => ['subject_id' => $subjectId],
         ]);
     }
 
@@ -118,7 +130,9 @@ class QuizController extends Controller
             }
         }
 
-        return back()->with('success', 'Quiz updated.');
+        return redirect()
+            ->route('teacher.quizzes.edit', $quiz)
+            ->with('success', 'Quiz updated.');
     }
 
     public function destroy(Quiz $quiz): RedirectResponse

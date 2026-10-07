@@ -26,14 +26,26 @@ class AssignmentController extends Controller
 
     public function index(Request $request): Response
     {
+        $classes = $request->user()->taughtClasses()->with('subject:id,name')->get();
+        $classIds = $classes->pluck('id');
+        $subjectId = $request->integer('subject_id') ?: null;
         $assignments = Assignment::where('teacher_id', $request->user()->id)
+            ->whereIn('school_class_id', $classIds)
+            ->whereHas('schoolClass', fn ($query) => $query
+                ->whereColumn('school_classes.subject_id', 'assignments.subject_id'))
+            ->when($subjectId, fn ($query) => $query->where('subject_id', $subjectId))
             ->with(['schoolClass', 'subject'])
             ->withCount('submissions')
+            ->orderBy('subject_id')
+            ->orderBy('school_class_id')
             ->latest()
-            ->paginate(15);
+            ->paginate(15)
+            ->withQueryString();
 
         return Inertia::render('Teacher/Assignments/Index', [
             'assignments' => $assignments,
+            'subjects' => $classes->pluck('subject')->filter()->unique('id')->values(),
+            'filters' => ['subject_id' => $subjectId],
         ]);
     }
 
@@ -55,7 +67,8 @@ class AssignmentController extends Controller
             'instructions' => 'nullable|string',
             'subject_id' => 'required|exists:subjects,id',
             'school_class_id' => 'required|exists:school_classes,id',
-            'deadline' => 'nullable|date',
+            'starts_at' => 'nullable|date',
+            'deadline' => 'nullable|date|after_or_equal:starts_at',
             'max_score' => 'required|numeric|min:1',
             'allow_resubmit' => 'boolean',
             'attachment' => 'nullable|file|max:10240|mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png',
@@ -100,7 +113,8 @@ class AssignmentController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'instructions' => 'nullable|string',
-            'deadline' => 'nullable|date',
+            'starts_at' => 'nullable|date',
+            'deadline' => 'nullable|date|after_or_equal:starts_at',
             'max_score' => 'required|numeric|min:1',
             'allow_resubmit' => 'boolean',
             'attachment' => 'nullable|file|max:10240|mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -37,6 +38,23 @@ class LearningMaterial extends Model
     public function schoolClass(): BelongsTo
     {
         return $this->belongsTo(SchoolClass::class);
+    }
+
+    public function scopeForConsistentClassSubject(Builder $query): Builder
+    {
+        return $query->whereHas('schoolClass', function (Builder $classQuery) {
+            $classQuery
+                ->whereColumn('school_classes.subject_id', 'learning_materials.subject_id')
+                ->whereHas('subject');
+        });
+    }
+
+    public function hasConsistentClassSubject(): bool
+    {
+        return $this->schoolClass()
+            ->where('subject_id', $this->subject_id)
+            ->whereHas('subject')
+            ->exists();
     }
 
     public function uploader(): BelongsTo

@@ -33,10 +33,8 @@ function GradeTable({ title, rows, activityKey, totalScore, detailPath, paginato
                     <table className="min-w-[780px] w-full text-left text-sm">
                         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                             <tr>
-                                <th className="p-3">Subject</th>
-                                <th className="p-3">Class</th>
+                                <th className="p-3">Subject → Class → Activity</th>
                                 <th className="p-3">Student</th>
-                                <th className="p-3">Activity</th>
                                 <th className="p-3">Score</th>
                                 <th className="p-3">Total Score</th>
                                 <th className="p-3">Date</th>
@@ -48,10 +46,8 @@ function GradeTable({ title, rows, activityKey, totalScore, detailPath, paginato
                                 const activity = row[activityKey];
                                 return (
                                     <tr key={row.id}>
-                                        <td className="p-3">{activity?.subject?.name || '—'}</td>
-                                        <td className="p-3">{activity?.school_class?.name}{activity?.school_class?.section ? ` - ${activity.school_class.section}` : ''}</td>
+                                        <td className="p-3">{activity?.subject?.name || '—'} <span className="text-slate-400">→</span> {activity?.school_class?.name}{activity?.school_class?.section ? ` - ${activity.school_class.section}` : ''} <span className="text-slate-400">→</span> {activity?.title}</td>
                                         <td className="p-3 font-medium">{row.student?.first_name} {row.student?.last_name}</td>
-                                        <td className="p-3">{activity?.title}</td>
                                         <td className="p-3">{row.score ?? '—'}</td>
                                         <td className="p-3">{totalScore(row) ?? '—'}</td>
                                         <td className="p-3 whitespace-nowrap">{formatDateTime(row.submitted_at)}</td>
@@ -107,7 +103,7 @@ export default function Index({ quizGrades, assignmentGrades, gradeSummary, subj
             <section className="mb-6 overflow-hidden rounded-xl border bg-white">
                 <div className="border-b p-4">
                     <h2 className="font-semibold">Subject Performance Summary</h2>
-                    <p className="mt-1 text-sm text-slate-500">Combined graded assignment and quiz results for each student in each subject.</p>
+                    <p className="mt-1 text-sm text-slate-500">Combined graded assignment and quiz results for each student in each subject and class.</p>
                 </div>
                 {gradeSummary.length === 0 ? (
                     <p className="p-5 text-sm text-slate-500">No graded activities match the selected filters.</p>
@@ -116,7 +112,7 @@ export default function Index({ quizGrades, assignmentGrades, gradeSummary, subj
                         <table className="min-w-[650px] w-full text-left text-sm">
                             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                                 <tr>
-                                    <th className="p-3">Subject</th>
+                                    <th className="p-3">Subject → Class</th>
                                     <th className="p-3">Student</th>
                                     <th className="p-3">Activities</th>
                                     <th className="p-3">Score / Total Score</th>
@@ -125,8 +121,8 @@ export default function Index({ quizGrades, assignmentGrades, gradeSummary, subj
                             </thead>
                             <tbody className="divide-y">
                                 {gradeSummary.map((row) => (
-                                    <tr key={`${row.subject_id}-${row.student_id}`}>
-                                        <td className="p-3 font-medium">{row.subject_name}</td>
+                                    <tr key={`${row.subject_id}-${row.school_class_id}-${row.student_id}`}>
+                                        <td className="p-3 font-medium">{row.subject_name} <span className="text-slate-400">→</span> {row.class_name}</td>
                                         <td className="p-3">{row.student_name}</td>
                                         <td className="p-3">{row.activity_count}</td>
                                         <td className="p-3">{row.score} / {row.total_score}</td>

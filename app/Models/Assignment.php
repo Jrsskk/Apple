@@ -28,6 +28,7 @@ class Assignment extends Model
         'attachment_file_type',
         'attachment_file_size',
         'posted_at',
+        'starts_at',
         'deadline',
         'max_score',
         'allow_resubmit',
@@ -38,6 +39,7 @@ class Assignment extends Model
     {
         return [
             'posted_at' => 'datetime',
+            'starts_at' => 'datetime',
             'deadline' => 'datetime',
             'max_score' => 'float',
             'allow_resubmit' => 'boolean',

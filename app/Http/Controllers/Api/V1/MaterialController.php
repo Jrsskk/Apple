@@ -18,6 +18,7 @@ class MaterialController extends ApiController
 
         $materials = LearningMaterial::withTrashed()
             ->whereIn('school_class_id', $classIds)
+            ->forConsistentClassSubject()
             ->with(['schoolClass.subject', 'subject', 'uploader:id,first_name,middle_name,last_name,email'])
             ->latest('updated_at')
             ->get()
@@ -29,10 +30,7 @@ class MaterialController extends ApiController
 
     public function show(Request $request, LearningMaterial $material): JsonResponse
     {
-        abort_unless(
-            $request->user()->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists(),
-            403,
-        );
+        $this->authorizeAccess($request, $material);
 
         $material->load(['schoolClass.subject', 'subject', 'uploader:id,first_name,middle_name,last_name,email']);
 
@@ -64,7 +62,8 @@ class MaterialController extends ApiController
     private function authorizeAccess(Request $request, LearningMaterial $material): void
     {
         abort_unless(
-            $request->user()->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists(),
+            $request->user()->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists()
+                && $material->hasConsistentClassSubject(),
             403,
         );
     }

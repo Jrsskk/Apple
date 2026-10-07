@@ -41,10 +41,11 @@ function GradeForm({ submission }) {
 }
 
 export default function Edit({ assignment }) {
-    const { data, setData, post, processing } = useForm({
+    const { data, setData, post, processing, errors } = useForm({
         title: assignment.title,
         description: assignment.description || '',
         instructions: assignment.instructions || '',
+        starts_at: assignment.starts_at ? assignment.starts_at.slice(0, 16) : '',
         deadline: assignment.deadline ? assignment.deadline.slice(0, 16) : '',
         max_score: assignment.max_score,
         allow_resubmit: !!assignment.allow_resubmit,
@@ -70,8 +71,21 @@ export default function Edit({ assignment }) {
                     <input value={data.title} onChange={(e) => setData('title', e.target.value)} className="w-full rounded-lg border-slate-300" required />
                     <textarea value={data.description} onChange={(e) => setData('description', e.target.value)} rows={2} className="w-full rounded-lg border-slate-300" />
                     <textarea value={data.instructions} onChange={(e) => setData('instructions', e.target.value)} rows={3} className="w-full rounded-lg border-slate-300" />
-                    <input type="datetime-local" value={data.deadline} onChange={(e) => setData('deadline', e.target.value)} className="w-full rounded-lg border-slate-300" />
-                    <input type="number" value={data.max_score} onChange={(e) => setData('max_score', parseFloat(e.target.value))} className="w-full rounded-lg border-slate-300" />
+                    <label className="block text-sm font-medium">
+                        Start date
+                        <input type="datetime-local" value={data.starts_at} onChange={(e) => setData('starts_at', e.target.value)} className="mt-1 w-full rounded-lg border-slate-300" />
+                        {errors.starts_at && <span className="mt-1 block text-xs text-red-600">{errors.starts_at}</span>}
+                    </label>
+                    <label className="block text-sm font-medium">
+                        Deadline
+                        <input type="datetime-local" value={data.deadline} onChange={(e) => setData('deadline', e.target.value)} className="mt-1 w-full rounded-lg border-slate-300" />
+                        {errors.deadline && <span className="mt-1 block text-xs text-red-600">{errors.deadline}</span>}
+                    </label>
+                    <label className="block text-sm font-medium">
+                        Max score
+                        <input type="number" min="1" value={data.max_score} onChange={(e) => setData('max_score', parseFloat(e.target.value))} className="mt-1 w-full rounded-lg border-slate-300" />
+                        {errors.max_score && <span className="mt-1 block text-xs text-red-600">{errors.max_score}</span>}
+                    </label>
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={data.allow_resubmit} onChange={(e) => setData('allow_resubmit', e.target.checked)} /> Allow resubmit</label>
                     <input type="file" onChange={(e) => setData('attachment', e.target.files[0])} className="text-sm" />
                     {assignment.attachment_path && (

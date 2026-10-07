@@ -22,18 +22,25 @@ class MaterialController extends Controller
 {
     public function index(Request $request): Response
     {
-        $classIds = $request->user()->taughtClasses()->pluck('id');
+        $classes = $request->user()->taughtClasses()->with('subject')->get();
+        $classIds = $classes->pluck('id');
+        $subjectId = $request->integer('subject_id') ?: null;
 
         $materials = LearningMaterial::whereIn('school_class_id', $classIds)
-            ->with(['schoolClass', 'subject'])
+            ->forConsistentClassSubject()
+            ->when($subjectId, fn ($query) => $query->where('subject_id', $subjectId))
+            ->with(['schoolClass.subject', 'subject', 'uploader'])
+            ->orderBy('subject_id')
+            ->orderBy('school_class_id')
             ->latest()
-            ->paginate(15);
-
-        $classes = $request->user()->taughtClasses()->with('subject')->get();
+            ->paginate(15)
+            ->withQueryString();
 
         return Inertia::render('Teacher/Materials/Index', [
             'materials' => $materials,
             'classes' => $classes,
+            'subjects' => $classes->pluck('subject')->filter()->unique('id')->values(),
+            'filters' => ['subject_id' => $subjectId],
         ]);
     }
 
@@ -101,13 +108,28 @@ class MaterialController extends Controller
     ): RedirectResponse
     {
         $this->authorizeMaterial($request, $material);
-        $data = $request->validate($this->validationRules());
+        $data = $request->validate($this->validationRules(fileRequired: false));
         abort_unless(
             (int) $material->school_class_id === (int) $data['school_class_id']
                 && (int) $material->subject_id === (int) $data['subject_id'],
             422,
             'A replacement must remain in the same class and subject.',
         );
+
+        if (! $request->hasFile('file')) {
+            $material->update([
+                'title' => $data['title'],
+                'description' => $data['description'] ?? null,
+            ]);
+
+            $recipients = $notifications->studentsForClassSubject(
+                (int) $material->school_class_id,
+                (int) $material->subject_id,
+            );
+            $notifications->notifyMaterial($material, $recipients, updated: true);
+
+            return back()->with('success', 'Material updated.');
+        }
 
         try {
             $uploaded = $storage->upload('materials', $request->file('file'));
@@ -238,14 +260,14 @@ class MaterialController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function validationRules(): array
+    private function validationRules(bool $fileRequired = true): array
     {
         return [
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'school_class_id' => 'required|exists:school_classes,id',
             'subject_id' => 'required|exists:subjects,id',
-            'file' => 'required|file|max:20480|mimes:pdf,doc,docx,odt,rtf,txt,ppt,pptx,pps,ppsx,xls,xlsx,csv,mp4,mov,avi,webm,jpg,jpeg,png,gif,webp',
+            'file' => ($fileRequired ? 'required' : 'nullable').'|file|max:20480|mimes:pdf,doc,docx,odt,rtf,txt,ppt,pptx,pps,ppsx,xls,xlsx,csv,mp4,mov,avi,webm,jpg,jpeg,png,gif,webp',
         ];
     }
 }

@@ -32,7 +32,7 @@ class AssignmentService
                 $assignment = Assignment::create([
                     ...Arr::only($data, [
                         'school_class_id', 'subject_id', 'title', 'description', 'instructions',
-                        'deadline', 'max_score', 'allow_resubmit', 'status',
+                        'starts_at', 'deadline', 'max_score', 'allow_resubmit', 'status',
                     ]),
                     'teacher_id' => $teacher->id,
                     'status' => $status,
@@ -70,7 +70,7 @@ class AssignmentService
         try {
             DB::transaction(function () use ($assignment, $data, $stored) {
                 $assignment->update(Arr::only($data, [
-                    'title', 'description', 'instructions', 'deadline',
+                    'title', 'description', 'instructions', 'starts_at', 'deadline',
                     'max_score', 'allow_resubmit', 'status',
                 ]));
                 if ($stored) {

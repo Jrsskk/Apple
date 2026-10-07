@@ -42,6 +42,7 @@ export default function Edit({ quiz }) {
     const [pdfBuilderOpen, setPdfBuilderOpen] = useState(false);
     const { props } = usePage();
     const pageErrors = props.errors || {};
+    const saveMessage = props.flash?.success;
     const { data, setData, put, processing, transform, errors: formErrors } = useForm({
         title: quiz.title,
         instructions: quiz.instructions || '',
@@ -67,7 +68,7 @@ export default function Edit({ quiz }) {
 
     const submit = (e) => {
         e.preventDefault();
-        put(`/teacher/quizzes/${quiz.id}`);
+        put(`/teacher/quizzes/${quiz.id}`, { preserveState: false });
     };
 
     const handlePdfGenerated = (questions) => {
@@ -87,6 +88,11 @@ export default function Edit({ quiz }) {
             <Head title={`Edit: ${quiz.title}`} />
 
             <form onSubmit={submit} className="space-y-6">
+                {saveMessage && (
+                    <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                        {saveMessage}
+                    </div>
+                )}
                 {(Object.keys(pageErrors).length > 0 || Object.keys(formErrors).length > 0) && (
                     <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                         <p className="font-semibold">Please fix the quiz before publishing or saving.</p>
@@ -109,11 +115,12 @@ export default function Edit({ quiz }) {
 
                     <textarea value={data.instructions} onChange={(e) => setData('instructions', e.target.value)} rows={3} className="w-full rounded-lg border-slate-300" placeholder="Instructions" />
 
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
                         <input type="datetime-local" value={data.starts_at} onChange={(e) => setData('starts_at', e.target.value)} className="rounded-lg border-slate-300" />
                         <input type="datetime-local" value={data.deadline} onChange={(e) => setData('deadline', e.target.value)} className="rounded-lg border-slate-300" />
                         <input type="number" value={data.duration_minutes} onChange={(e) => setData('duration_minutes', parseInt(e.target.value, 10))} className="rounded-lg border-slate-300" placeholder="Duration" />
                         <input type="number" value={data.max_attempts} onChange={(e) => setData('max_attempts', parseInt(e.target.value, 10))} className="rounded-lg border-slate-300" placeholder="Max attempts" />
+                        <input type="number" min="0" max="100" value={data.passing_score} onChange={(e) => setData('passing_score', parseFloat(e.target.value))} className="rounded-lg border-slate-300" placeholder="Passing score (%)" />
                     </div>
 
                     <div className="flex flex-wrap gap-4 text-sm">

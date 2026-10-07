@@ -44,8 +44,9 @@ Route::get('/offline', fn () => view('offline'))->name('offline');
 Route::get('/firebase-messaging-sw.js', FirebaseMessagingServiceWorkerController::class)
     ->name('firebase.messaging.service-worker');
 
-Route::middleware(['auth', 'verified', 'active'])->group(function () {
-    Route::get('/dashboard', DashboardController::class)->name('dashboard');
+Route::middleware(['auth', 'active'])->group(function () {
+    Route::get('/dashboard', DashboardController::class)
+        ->name('dashboard');
     Route::get('/profile/photo', [ProfilePhotoController::class, 'show'])->name('profile.photo');
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {

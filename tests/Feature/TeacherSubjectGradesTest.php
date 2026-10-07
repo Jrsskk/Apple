@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AcademicYear;
 use App\Models\Assignment;
 use App\Models\AssignmentSubmission;
+use App\Models\LearningMaterial;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\SchoolClass;
@@ -126,6 +127,104 @@ class TeacherSubjectGradesTest extends TestCase
                 ->where('gradeSummary.0.activity_count', 2)
                 ->where('gradeSummary.0.score', 98)
                 ->where('gradeSummary.0.total_score', 120));
+    }
+
+    public function test_teacher_content_indexes_filter_out_items_misfiled_under_another_subject(): void
+    {
+        $this->seed(\Database\Seeders\EduSyncSeeder::class);
+
+        $teacher = User::where('email', 'teacher@edusync.test')->firstOrFail();
+        $classA = $teacher->taughtClasses()->firstOrFail();
+        $subjectA = Subject::findOrFail($classA->subject_id);
+        [$subjectB, $classB] = $this->createSubjectAndClass($teacher);
+
+        foreach ([
+            ['Quiz A', $subjectA->id, $classA->id],
+            ['Quiz B', $subjectB->id, $classB->id],
+            ['Misfiled Quiz', $subjectB->id, $classA->id],
+        ] as [$title, $subjectId, $classId]) {
+            Quiz::create([
+                'title' => $title,
+                'subject_id' => $subjectId,
+                'school_class_id' => $classId,
+                'teacher_id' => $teacher->id,
+                'duration_minutes' => 30,
+                'max_attempts' => 1,
+                'passing_score' => 60,
+                'status' => 'draft',
+            ]);
+        }
+
+        foreach ([
+            ['Assignment A', $subjectA->id, $classA->id],
+            ['Assignment B', $subjectB->id, $classB->id],
+            ['Misfiled Assignment', $subjectB->id, $classA->id],
+        ] as [$title, $subjectId, $classId]) {
+            Assignment::create([
+                'title' => $title,
+                'subject_id' => $subjectId,
+                'school_class_id' => $classId,
+                'teacher_id' => $teacher->id,
+                'max_score' => 100,
+                'status' => 'draft',
+            ]);
+        }
+
+        foreach ([
+            ['Material A', $subjectA->id, $classA->id],
+            ['Material B', $subjectB->id, $classB->id],
+            ['Misfiled Material', $subjectB->id, $classA->id],
+        ] as [$title, $subjectId, $classId]) {
+            LearningMaterial::create([
+                'title' => $title,
+                'file_path' => "materials/{$title}.pdf",
+                'subject_id' => $subjectId,
+                'school_class_id' => $classId,
+                'uploaded_by' => $teacher->id,
+            ]);
+        }
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.quizzes.index', ['subject_id' => $subjectB->id]))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Teacher/Quizzes/Index')
+                ->where('quizzes.total', 1)
+                ->where('quizzes.data.0.title', 'Quiz B')
+                ->where('quizzes.data.0.subject.name', $subjectB->name)
+                ->where('quizzes.data.0.school_class.id', $classB->id));
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.assignments.index', ['subject_id' => $subjectB->id]))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Teacher/Assignments/Index')
+                ->where('assignments.total', 1)
+                ->where('assignments.data.0.title', 'Assignment B')
+                ->where('assignments.data.0.subject.name', $subjectB->name)
+                ->where('assignments.data.0.school_class.id', $classB->id));
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.materials.index', ['subject_id' => $subjectB->id]))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Teacher/Materials/Index')
+                ->where('materials.total', 1)
+                ->where('materials.data.0.title', 'Material B')
+                ->where('materials.data.0.subject.id', $subjectB->id)
+                ->where('materials.data.0.school_class.id', $classB->id));
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.quizzes.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('quizzes.total', 3));
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.assignments.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('assignments.total', 3));
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.materials.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('materials.total', 2));
     }
 
     private function createSubjectAndClass(User $teacher): array

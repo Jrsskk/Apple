@@ -63,10 +63,5 @@
         </div>
     </div>
     @stack('scripts')
-    <style>
-        .nav-link { @apply block px-3 py-2 rounded text-sm text-indigo-100 hover:bg-indigo-800 transition; }
-        .nav-link.active { @apply bg-indigo-700 text-white font-medium; }
-        [x-cloak] { display: none !important; }
-    </style>
 </body>
 </html>

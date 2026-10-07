@@ -82,6 +82,7 @@ class DashboardService
             'pending_count' => $this->pendingActivitiesCount($student, $classIds),
             'recent_grades' => QuizAttempt::where('student_id', $student->id)->where('status', 'graded')->latest()->take(5)->get(),
             'materials' => LearningMaterial::whereIn('school_class_id', $classIds)
+                ->forConsistentClassSubject()
                 ->with('schoolClass')
                 ->latest()->take(5)->get(),
             'announcements' => Announcement::whereIn('target_audience', ['all', 'students'])

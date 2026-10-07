@@ -84,6 +84,7 @@ class GradeController extends Controller
                 $summary,
                 $grade->student,
                 $grade->quiz->subject,
+                $grade->quiz->schoolClass,
                 $grade->score,
                 $grade->total_points ?? $grade->quiz->total_points
             );
@@ -94,6 +95,7 @@ class GradeController extends Controller
                 $summary,
                 $grade->student,
                 $grade->assignment->subject,
+                $grade->assignment->schoolClass,
                 $grade->score,
                 $grade->assignment->max_score
             );
@@ -105,24 +107,27 @@ class GradeController extends Controller
                 : null;
 
             return $row;
-        })->sortBy([['subject_name', 'asc'], ['student_name', 'asc']])->values()->all();
+        })->sortBy([['subject_name', 'asc'], ['class_name', 'asc'], ['student_name', 'asc']])->values()->all();
     }
 
     private function addGradeToSummary(
         array &$summary,
         $student,
         $subject,
+        $schoolClass,
         mixed $score,
         mixed $totalScore
     ): void {
-        if (! $student || ! $subject || $score === null || $totalScore === null || (float) $totalScore <= 0) {
+        if (! $student || ! $subject || ! $schoolClass || $score === null || $totalScore === null || (float) $totalScore <= 0) {
             return;
         }
 
-        $key = $subject->id.':'.$student->id;
+        $key = $subject->id.':'.$schoolClass->id.':'.$student->id;
         $summary[$key] ??= [
             'subject_id' => $subject->id,
             'subject_name' => $subject->name,
+            'school_class_id' => $schoolClass->id,
+            'class_name' => $schoolClass->display_name,
             'student_id' => $student->id,
             'student_name' => $student->full_name,
             'score' => 0,

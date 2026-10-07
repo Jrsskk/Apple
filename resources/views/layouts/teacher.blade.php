@@ -47,6 +47,5 @@
         </div>
     </div>
     @stack('scripts')
-    <style>.t-nav{@apply block px-3 py-2 rounded text-sm text-emerald-100 hover:bg-emerald-800 transition}.t-nav.active{@apply bg-emerald-700 text-white font-medium}[x-cloak]{display:none!important}</style>
 </body>
 </html>

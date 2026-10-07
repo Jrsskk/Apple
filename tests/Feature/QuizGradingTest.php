@@ -122,7 +122,7 @@ class QuizGradingTest extends TestCase
             ->assertSeeText($availableQuiz->title);
     }
 
-    public function test_teacher_can_create_a_quiz_without_a_subject_hidden_field(): void
+    public function test_teacher_quiz_creation_requires_an_explicit_subject_selection(): void
     {
         $academicYear = AcademicYear::create([
             'name' => '2026-2027',
@@ -184,7 +184,80 @@ class QuizGradingTest extends TestCase
 
         $response = $this->post(route('teacher.quizzes.store'), $payload);
 
+        $response->assertSessionHasErrors('subject_id');
+        $this->assertDatabaseMissing('quizzes', ['title' => 'Biology Quiz']);
+
+        $payload['subject_id'] = $subject->id;
+        $response = $this->post(route('teacher.quizzes.store'), $payload);
         $response->assertRedirect();
         $this->assertDatabaseHas('quizzes', ['title' => 'Biology Quiz', 'teacher_id' => $teacher->id]);
+    }
+
+    public function test_teacher_quiz_edits_persist_and_are_returned_by_the_edit_page(): void
+    {
+        $this->seed(\Database\Seeders\EduSyncSeeder::class);
+        $quiz = Quiz::with('questions')->firstOrFail();
+        $teacher = $quiz->teacher;
+        $previousQuestionIds = $quiz->questions->modelKeys();
+
+        $payload = [
+            'title' => 'Updated quiz title',
+            'instructions' => 'Updated instructions',
+            'subject_id' => $quiz->subject_id,
+            'school_class_id' => $quiz->school_class_id,
+            'starts_at' => $quiz->starts_at?->format('Y-m-d H:i:s'),
+            'deadline' => $quiz->deadline?->format('Y-m-d H:i:s'),
+            'duration_minutes' => 45,
+            'max_attempts' => 2,
+            'passing_score' => 80,
+            'randomize_questions' => true,
+            'randomize_choices' => false,
+            'show_results' => true,
+            'allow_review' => true,
+            'status' => 'draft',
+            'questions' => [[
+                'type' => 'multiple_choice',
+                'question_text' => 'Updated question text?',
+                'points' => 4,
+                'explanation' => 'Updated explanation',
+                'options' => [
+                    ['option_text' => 'Updated correct answer', 'is_correct' => true],
+                    ['option_text' => 'Updated incorrect answer', 'is_correct' => false],
+                ],
+            ]],
+        ];
+
+        $this->actingAs($teacher)
+            ->put(route('teacher.quizzes.update', $quiz), $payload)
+            ->assertRedirect(route('teacher.quizzes.edit', $quiz))
+            ->assertSessionHas('success', 'Quiz updated.');
+
+        $quiz->refresh();
+        $this->assertSame('Updated quiz title', $quiz->title);
+        $this->assertSame('Updated instructions', $quiz->instructions);
+        $this->assertSame(45, $quiz->duration_minutes);
+        $this->assertSame(2, $quiz->max_attempts);
+        $this->assertSame(80.0, $quiz->passing_score);
+        $this->assertTrue($quiz->randomize_questions);
+        $this->assertDatabaseHas('quiz_questions', [
+            'quiz_id' => $quiz->id,
+            'question_text' => 'Updated question text?',
+            'points' => 4,
+        ]);
+        $this->assertDatabaseHas('question_options', [
+            'option_text' => 'Updated correct answer',
+            'is_correct' => true,
+        ]);
+        foreach ($previousQuestionIds as $questionId) {
+            $this->assertDatabaseMissing('quiz_questions', ['id' => $questionId]);
+        }
+
+        $this->get(route('teacher.quizzes.edit', $quiz))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Teacher/Quizzes/Edit')
+                ->where('quiz.title', 'Updated quiz title')
+                ->where('quiz.questions.0.question_text', 'Updated question text?')
+                ->where('quiz.questions.0.options.0.option_text', 'Updated correct answer'));
     }
 }

@@ -13,20 +13,6 @@ class StoreQuizRequest extends FormRequest
         return $this->user()?->isTeacher() || $this->user()?->isAdmin();
     }
 
-    protected function prepareForValidation(): void
-    {
-        $schoolClassId = $this->input('school_class_id');
-        $subjectId = $this->input('subject_id');
-
-        if (empty($subjectId) && $schoolClassId) {
-            $schoolClass = SchoolClass::query()->find($schoolClassId);
-
-            if ($schoolClass && $schoolClass->subject_id) {
-                $this->merge(['subject_id' => $schoolClass->subject_id]);
-            }
-        }
-    }
-
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {

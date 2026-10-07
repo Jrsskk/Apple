@@ -71,7 +71,7 @@ class LearningMaterialFileTest extends TestCase
     public function test_student_materials_are_grouped_and_filtered_by_the_enrolled_class_subject(): void
     {
         [$teacher, $student, $biologyClass, $biology] = $this->createClassWithStudent();
-        $teacher->update(['first_name' => 'Taylor', 'last_name' => 'Teacher']);
+        $teacher->update(['first_name' => 'Taylor', 'middle_name' => null, 'last_name' => 'Teacher']);
         $biology->update(['name' => 'Biology']);
 
         $year = AcademicYear::factory()->create();
@@ -119,7 +119,7 @@ class LearningMaterialFileTest extends TestCase
             'school_class_id' => $chemistryClass->id,
             'uploaded_by' => $teacher->id,
         ]);
-        LearningMaterial::create([
+        $wrongSubjectMaterial = LearningMaterial::create([
             'title' => 'Wrong Subject Material',
             'file_path' => 'materials/wrong-subject.pdf',
             'file_type' => 'application/pdf',
@@ -148,6 +148,29 @@ class LearningMaterialFileTest extends TestCase
             ->assertDontSee('Wrong Subject Material')
             ->assertDontSee('Not Enrolled Material');
 
+        $html = $response->getContent();
+        preg_match('/<section\b[^>]*aria-labelledby="subject-'.$biology->id.'"[^>]*>(.*?)<\/section>/s', $html, $biologySection);
+        preg_match('/<section\b[^>]*aria-labelledby="subject-'.$chemistry->id.'"[^>]*>(.*?)<\/section>/s', $html, $chemistrySection);
+        $this->assertNotEmpty($biologySection);
+        $this->assertNotEmpty($chemistrySection);
+        $this->assertStringContainsString('Cell Structure Notes', $biologySection[1]);
+        $this->assertStringNotContainsString('Chemical Reactions Video', $biologySection[1]);
+        $this->assertStringContainsString('Chemical Reactions Video', $chemistrySection[1]);
+        $this->assertStringNotContainsString('Cell Structure Notes', $chemistrySection[1]);
+
+        $this->actingAs($student)
+            ->get(route('student.materials.file', $wrongSubjectMaterial))
+            ->assertForbidden();
+
+        $token = $student->createToken('subject-materials-test')->plainTextToken;
+        $this->withToken($token)
+            ->getJson('/api/v1/materials')
+            ->assertOk()
+            ->assertJsonFragment(['title' => 'Cell Structure Notes'])
+            ->assertJsonFragment(['title' => 'Chemical Reactions Video'])
+            ->assertJsonMissing(['title' => 'Wrong Subject Material'])
+            ->assertJsonMissing(['title' => 'Not Enrolled Material']);
+
         $response = $this->get(route('student.materials.index', ['subject_id' => $biology->id]));
         $response->assertOk()
             ->assertSee('Cell Structure Notes')
@@ -158,6 +181,26 @@ class LearningMaterialFileTest extends TestCase
         $response->assertOk()
             ->assertSee('Chemical Reactions Video')
             ->assertDontSee('Cell Structure Notes');
+    }
+
+    public function test_teacher_cannot_upload_a_material_to_a_subject_that_does_not_belong_to_the_class(): void
+    {
+        [$teacher, , $class, $subject] = $this->createClassWithStudent();
+        $wrongSubject = Subject::factory()->create([
+            'teacher_id' => $teacher->id,
+            'academic_year_id' => $subject->academic_year_id,
+        ]);
+
+        $this->actingAs($teacher)
+            ->post(route('teacher.materials.store'), [
+                'title' => 'Misassigned Material',
+                'school_class_id' => $class->id,
+                'subject_id' => $wrongSubject->id,
+                'file' => UploadedFile::fake()->create('misassigned.pdf', 12, 'application/pdf'),
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('learning_materials', ['title' => 'Misassigned Material']);
     }
 
     public function test_teacher_can_replace_a_material_file_in_supabase_storage(): void
@@ -184,7 +227,8 @@ class LearningMaterialFileTest extends TestCase
         });
 
         $this->actingAs($teacher)->post(route('teacher.materials.replace', $material), [
-            'title' => 'Existing Notes',
+            'title' => 'Updated Notes',
+            'description' => 'Revised study notes',
             'school_class_id' => $class->id,
             'subject_id' => $subject->id,
             'file' => UploadedFile::fake()->create('updated.pdf', 25, 'application/pdf'),
@@ -196,8 +240,17 @@ class LearningMaterialFileTest extends TestCase
         $this->assertNotSame('old.pdf', $material->file_path);
         $this->assertSame('updated.pdf', $material->original_file_name);
         $this->assertSame(25 * 1024, $material->file_size);
-        $this->assertSame('Existing Notes', $material->title);
+        $this->assertSame('Updated Notes', $material->title);
+        $this->assertSame('Revised study notes', $material->description);
         $this->assertSame('supabase', $material->storage_disk);
+        $this->actingAs($teacher)
+            ->get(route('teacher.materials.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Teacher/Materials/Index')
+                ->where('materials.data.0.title', 'Updated Notes')
+                ->where('materials.data.0.description', 'Revised study notes')
+                ->where('materials.data.0.original_file_name', 'updated.pdf'));
 
         Http::assertSent(fn ($request) => $request->method() === 'DELETE'
             && json_decode($request->body(), true)['prefixes'][0] === 'old.pdf');
@@ -209,6 +262,48 @@ class LearningMaterialFileTest extends TestCase
         $this->assertSoftDeleted('learning_materials', ['id' => $material->id]);
         Http::assertSent(fn ($request) => $request->method() === 'DELETE'
             && json_decode($request->body(), true)['prefixes'][0] === $material->file_path);
+    }
+
+    public function test_teacher_can_update_material_details_without_replacing_its_file(): void
+    {
+        [$teacher, , $class, $subject] = $this->createClassWithStudent();
+        $material = LearningMaterial::create([
+            'title' => 'Original Notes',
+            'description' => 'Original description',
+            'file_path' => 'materials/original.pdf',
+            'storage_disk' => 'local',
+            'original_file_name' => 'original.pdf',
+            'file_type' => 'application/pdf',
+            'file_size' => 10,
+            'subject_id' => $subject->id,
+            'school_class_id' => $class->id,
+            'uploaded_by' => $teacher->id,
+        ]);
+
+        $this->actingAs($teacher)
+            ->post(route('teacher.materials.replace', $material), [
+                'title' => 'Revised Notes',
+                'description' => 'Revised description',
+                'school_class_id' => $class->id,
+                'subject_id' => $subject->id,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success', 'Material updated.');
+
+        $material->refresh();
+        $this->assertSame('Revised Notes', $material->title);
+        $this->assertSame('Revised description', $material->description);
+        $this->assertSame('materials/original.pdf', $material->file_path);
+        $this->assertSame('original.pdf', $material->original_file_name);
+
+        $this->actingAs($teacher)
+            ->get(route('teacher.materials.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Teacher/Materials/Index')
+                ->where('materials.data.0.title', 'Revised Notes')
+                ->where('materials.data.0.description', 'Revised description')
+                ->where('materials.data.0.original_file_name', 'original.pdf'));
     }
 
     public function test_teacher_upload_failure_is_reported_without_creating_database_metadata(): void

@@ -33,11 +33,7 @@ class MaterialController extends Controller
 
         $query = LearningMaterial::query()
             ->whereIn('learning_materials.school_class_id', $classIds)
-            ->whereHas('schoolClass', function (Builder $classQuery) {
-                $classQuery
-                    ->whereColumn('school_classes.subject_id', 'learning_materials.subject_id')
-                    ->whereHas('subject');
-            })
+            ->forConsistentClassSubject()
             ->with(['schoolClass.subject', 'uploader']);
 
         if (filled($filters['subject_id'] ?? null)) {
@@ -111,7 +107,8 @@ class MaterialController extends Controller
         $student = User::query()->findOrFail($request->integer('student'));
         abort_unless(
             $student->isStudent()
-                && $student->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists(),
+                && $student->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists()
+                && $material->hasConsistentClassSubject(),
             403,
         );
         abort_if($request->user() && $request->user()->id !== $student->id, 403);
@@ -125,5 +122,6 @@ class MaterialController extends Controller
             auth()->user()->enrolledClasses()->where('school_classes.id', $material->school_class_id)->exists(),
             403
         );
+        abort_unless($material->hasConsistentClassSubject(), 403);
     }
 }
